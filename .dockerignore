@@ -1,0 +1,15 @@
+.git
+.vs
+.local
+**/.local
+**/bin
+**/obj
+**/node_modules
+**/dist
+TestResults
+*.user
+*.suo
+.env
+.env.*
+.local
+.local/

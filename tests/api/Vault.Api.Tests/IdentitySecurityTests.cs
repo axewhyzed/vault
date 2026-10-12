@@ -1,0 +1,357 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+using Vault.Api.Modules.Identity;
+using Vault.Api.Modules.Shared.Persistence;
+
+namespace Vault.Api.Tests;
+
+public sealed class IdentitySecurityTests
+{
+    private const string Origin = "https://localhost";
+    private const string Password1 = "FirstTestPassword_2026!";
+    private const string Password2 = "SecondTestPassword_2026!";
+
+    [Fact]
+    public async Task Health_and_openapi_are_public_while_authentication_routes_are_protected()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var client = host.CreateClient();
+
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health/live")).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/health/ready")).StatusCode);
+        using var openApi = await client.GetAsync("/api/openapi/v1.json");
+        Assert.Equal(HttpStatusCode.OK, openApi.StatusCode);
+        using var document = JsonDocument.Parse(await openApi.Content.ReadAsStringAsync());
+        Assert.Equal("3.1.1", document.RootElement.GetProperty("openapi").GetString());
+        var paths = document.RootElement.GetProperty("paths");
+        Assert.True(paths.TryGetProperty("/api/v1/auth/login", out _));
+        var scheme = document.RootElement.GetProperty("components").GetProperty("securitySchemes").GetProperty("VaultCookie");
+        Assert.Equal("apiKey", scheme.GetProperty("type").GetString());
+        Assert.Equal("cookie", scheme.GetProperty("in").GetString());
+        Assert.Equal("__Host-Vault.Auth", scheme.GetProperty("name").GetString());
+        Assert.Contains("VaultCookie", paths.GetProperty("/api/v1/auth/me").GetProperty("get").GetProperty("security").ToString());
+        Assert.Contains("X-CSRF-TOKEN", paths.GetProperty("/api/v1/auth/login").GetProperty("post").GetProperty("description").GetString());
+
+        var textCreate = paths.GetProperty("/api/v1/items/text").GetProperty("post");
+        Assert.Contains("VaultCookie", textCreate.GetProperty("security").ToString());
+        Assert.Contains("Idempotency-Key", textCreate.GetProperty("parameters").EnumerateArray().Select(x => x.GetProperty("name").GetString()));
+        Assert.Contains("201", textCreate.GetProperty("responses").EnumerateObject().Select(x => x.Name));
+        Assert.Contains("409", textCreate.GetProperty("responses").EnumerateObject().Select(x => x.Name));
+        Assert.Contains("413", textCreate.GetProperty("responses").EnumerateObject().Select(x => x.Name));
+        Assert.Contains("422", textCreate.GetProperty("responses").EnumerateObject().Select(x => x.Name));
+        var itemDelete = paths.GetProperty("/api/v1/items/{id}").GetProperty("delete");
+        Assert.Contains("VaultCookie", itemDelete.GetProperty("security").ToString());
+        Assert.Contains("Origin", itemDelete.GetProperty("parameters").EnumerateArray().Select(x => x.GetProperty("name").GetString()));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/items")).StatusCode);
+        using var logoutRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout");
+        logoutRequest.Headers.Add("Origin", Origin);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(logoutRequest)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Csrf_origin_validation_login_cookie_me_and_device_scoped_logout_work()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var client1 = host.CreateClient();
+        var csrf1 = await GetCsrfAsync(client1);
+
+        using var missingOrigin = await client1.PostAsJsonAsync("/api/v1/auth/login", new { email = TestApiHost.Email1, password = Password1 });
+        Assert.Equal(HttpStatusCode.Forbidden, missingOrigin.StatusCode);
+
+        using var badOriginRequest = NewLoginRequest(TestApiHost.Email1, Password1, csrf1.Token, "https://evil.example");
+        using var badOrigin = await client1.SendAsync(badOriginRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, badOrigin.StatusCode);
+
+        foreach (var invalidOrigin in new[] { "null", "https://localhost/path" })
+        {
+            using var invalidRequest = NewLoginRequest(TestApiHost.Email1, Password1, csrf1.Token, invalidOrigin);
+            using var invalidResponse = await client1.SendAsync(invalidRequest);
+            Assert.Equal(HttpStatusCode.Forbidden, invalidResponse.StatusCode);
+        }
+
+        using var multipleOriginRequest = NewLoginRequest(TestApiHost.Email1, Password1, csrf1.Token, Origin);
+        multipleOriginRequest.Headers.TryAddWithoutValidation("Origin", "https://evil.example");
+        using var multipleOriginResponse = await client1.SendAsync(multipleOriginRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, multipleOriginResponse.StatusCode);
+
+        using var missingCsrfRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/login")
+        {
+            Content = JsonContent.Create(new { email = TestApiHost.Email1, password = Password1 })
+        };
+        missingCsrfRequest.Headers.Add("Origin", Origin);
+        using var missingCsrf = await client1.SendAsync(missingCsrfRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, missingCsrf.StatusCode);
+
+        using var invalidCsrfRequest = NewLoginRequest(TestApiHost.Email1, Password1, "invalid-token", Origin);
+        using var invalidCsrf = await client1.SendAsync(invalidCsrfRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, invalidCsrf.StatusCode);
+
+        var account1 = await LoginAsync(host, client1, TestApiHost.Email1, Password1, csrf1.Token);
+        Assert.NotEqual(Guid.Empty, account1.UserId);
+        Assert.NotEqual(Guid.Empty, account1.DeviceId);
+        Assert.Equal(TestApiHost.Email1, account1.Email);
+        var savedCookie = host.GetAuthCookie(client1);
+
+        using var me1 = await client1.GetAsync("/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.OK, me1.StatusCode);
+        var signedIn1 = await me1.Content.ReadFromJsonAsync<AccountResponse>();
+        Assert.Equal(account1, signedIn1);
+
+        using var client2 = host.CreateClient();
+        var csrf2 = await GetCsrfAsync(client2);
+        var account2 = await LoginAsync(host, client2, TestApiHost.Email2, Password2, csrf2.Token);
+        Assert.NotEqual(account1.UserId, account2.UserId);
+        Assert.NotEqual(account1.DeviceId, account2.DeviceId);
+        using var me1AfterSecondLogin = await client1.GetAsync("/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.OK, me1AfterSecondLogin.StatusCode);
+        Assert.Equal(account1.UserId, (await me1AfterSecondLogin.Content.ReadFromJsonAsync<AccountResponse>())!.UserId);
+
+        using var logoutWithoutCsrf = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout");
+        logoutWithoutCsrf.Headers.Add("Origin", Origin);
+        using var missingLogoutCsrf = await client1.SendAsync(logoutWithoutCsrf);
+        Assert.Equal(HttpStatusCode.Forbidden, missingLogoutCsrf.StatusCode);
+
+        var logoutCsrf = await GetCsrfAsync(client1);
+        using var logoutRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout");
+        logoutRequest.Headers.Add("Origin", Origin);
+        logoutRequest.Headers.Add("X-CSRF-TOKEN", logoutCsrf.Token);
+        using var logout = await client1.SendAsync(logoutRequest);
+        Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
+        using var replayClient = host.CreateClient();
+        replayClient.DefaultRequestHeaders.Add("Cookie", savedCookie);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await replayClient.GetAsync("/api/v1/auth/me")).StatusCode);
+        using var client2StillValid = await client2.GetAsync("/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.OK, client2StillValid.StatusCode);
+
+        var events = await host.GetAuditEventTypesAsync();
+        Assert.Contains("login_succeeded", events);
+        Assert.Contains("logout", events);
+        var auditText = await host.GetAuditTextAsync();
+        Assert.DoesNotContain(TestApiHost.Email1, auditText, StringComparison.Ordinal);
+        Assert.DoesNotContain(TestApiHost.Email2, auditText, StringComparison.Ordinal);
+        Assert.DoesNotContain(Password1, auditText, StringComparison.Ordinal);
+        Assert.DoesNotContain(Password2, auditText, StringComparison.Ordinal);
+        Assert.DoesNotContain(csrf1.Token, auditText, StringComparison.Ordinal);
+        Assert.DoesNotContain(logoutCsrf.Token, auditText, StringComparison.Ordinal);
+
+        var originalHash = await host.GetPasswordHashAsync(TestApiHost.Email1);
+        await host.RunSeederAsync(TestApiHost.Email1, "IgnoredPasswordForIdempotence!");
+        Assert.Equal(originalHash, await host.GetPasswordHashAsync(TestApiHost.Email1));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => host.RunSeederAsync(TestApiHost.Email2, Password2));
+        Assert.Equal(originalHash, await host.GetPasswordHashAsync(TestApiHost.Email1));
+    }
+
+    [Fact]
+    public async Task Invalid_credentials_are_audited_and_sign_in_is_limited_to_five_per_client_ip()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var client = host.CreateClient();
+        var csrf = await GetCsrfAsync(client);
+
+        for (var attempt = 1; attempt <= 5; attempt++)
+        {
+            using var response = await SendLoginAsync(client, TestApiHost.Email1, "wrong-password", csrf.Token, "192.0.2.7");
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        using var limited = await SendLoginAsync(client, TestApiHost.Email1, Password1, csrf.Token, "192.0.2.7");
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.NotNull(limited.Headers.RetryAfter);
+        var events = await host.GetAuditEventTypesAsync();
+        Assert.Equal(5, events.Count(value => value == "login_failed"));
+    }
+
+    [Fact]
+    public async Task Sign_in_global_limit_counts_successes_across_client_ips_and_does_not_reset_on_success()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var client = host.CreateClient();
+        for (var attempt = 1; attempt <= 30; attempt++)
+        {
+            var requestCsrf = await GetCsrfAsync(client);
+            using var response = await SendLoginAsync(client, TestApiHost.Email1, Password1, requestCsrf.Token, $"198.51.100.{attempt}");
+            Assert.True(response.StatusCode == HttpStatusCode.OK, $"Attempt {attempt} failed: {response.StatusCode} {await response.Content.ReadAsStringAsync()}");
+        }
+
+        var finalCsrf = await GetCsrfAsync(client);
+        using var limited = await SendLoginAsync(client, TestApiHost.Email1, Password1, finalCsrf.Token, "203.0.113.1");
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.NotNull(limited.Headers.RetryAfter);
+    }
+
+    private static HttpRequestMessage NewLoginRequest(string email, string password, string token, string origin)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/login")
+        {
+            Content = JsonContent.Create(new { email, password })
+        };
+        request.Headers.Add("Origin", origin);
+        request.Headers.Add("X-CSRF-TOKEN", token);
+        return request;
+    }
+
+    private static async Task<CsrfResponse> GetCsrfAsync(HttpClient client)
+    {
+        using var response = await client.GetAsync("/api/v1/auth/csrf");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var csrf = await response.Content.ReadFromJsonAsync<CsrfResponse>();
+        Assert.NotNull(csrf);
+        Assert.Equal("X-CSRF-TOKEN", csrf.HeaderName);
+        return csrf;
+    }
+
+    private static async Task<AccountResponse> LoginAsync(TestApiHost host, HttpClient client, string email, string password, string token)
+    {
+        using var response = await SendLoginAsync(client, email, password, token, "192.0.2.20");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        host.RecordAuthCookie(client, response);
+        var account = await response.Content.ReadFromJsonAsync<AccountResponse>();
+        Assert.NotNull(account);
+        return account;
+    }
+
+    private static async Task<HttpResponseMessage> SendLoginAsync(HttpClient client, string email, string password, string token, string ip)
+    {
+        var request = NewLoginRequest(email, password, token, Origin);
+        request.Headers.Add("X-Forwarded-For", ip);
+        return await client.SendAsync(request);
+    }
+
+    private sealed record CsrfResponse(string Token, string HeaderName);
+    private sealed record AccountResponse(Guid UserId, string Email, Guid DeviceId);
+
+    private sealed class TestApiHost : IDisposable
+    {
+        public const string Email1 = "owner-a@example.test";
+        public const string Email2 = "owner-b@example.test";
+        private readonly SqliteConnection _connection;
+        private readonly WebApplicationFactory<Program> _factory;
+
+        private TestApiHost(SqliteConnection connection, WebApplicationFactory<Program> factory)
+        {
+            _connection = connection;
+            _factory = factory;
+        }
+
+        public static async Task<TestApiHost> CreateAsync()
+        {
+            var connection = new SqliteConnection("Data Source=:memory:");
+            await connection.OpenAsync();
+            var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["ConnectionStrings:Vault"] = "Data Source=:memory:",
+                    ["Database:ApplyMigrations"] = "false",
+                    ["TrustedProxyIp"] = "127.0.0.1",
+                    ["Security:AllowedOrigins:0"] = Origin
+                }));
+                builder.ConfigureServices(services =>
+                {
+                    services.RemoveAll<VaultDbContext>();
+                    services.RemoveAll<DbContextOptions<VaultDbContext>>();
+                    services.RemoveAll<IDbContextOptionsConfiguration<VaultDbContext>>();
+                    services.AddDbContext<VaultDbContext>(options => options.UseSqlite(connection));
+                    services.Configure<PasswordHasherOptions>(options => options.IterationCount = 10);
+                });
+            });
+            var host = new TestApiHost(connection, factory);
+            using var scope = factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            await database.Database.EnsureCreatedAsync();
+            var hasher = new PasswordHasher<VaultUser>(Options.Create(new PasswordHasherOptions { IterationCount = 10 }));
+            var user1 = new VaultUser { Email = Email1, NormalizedEmail = Email1.ToUpperInvariant(), IsBootstrap = true };
+            user1.PasswordHash = hasher.HashPassword(user1, Password1);
+            var user2 = new VaultUser { Email = Email2, NormalizedEmail = Email2.ToUpperInvariant() };
+            user2.PasswordHash = hasher.HashPassword(user2, Password2);
+            database.Users.AddRange(user1, user2);
+            await database.SaveChangesAsync();
+            return host;
+        }
+
+        public HttpClient CreateClient() => _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri(Origin),
+            HandleCookies = true,
+            AllowAutoRedirect = false
+        });
+
+        public string GetAuthCookie(HttpClient client)
+        {
+            return AuthCookieByLogin[client];
+        }
+
+        private readonly Dictionary<HttpClient, string> AuthCookieByLogin = new();
+
+        public void RecordAuthCookie(HttpClient client, HttpResponseMessage response)
+        {
+            var setCookie = Assert.Single(response.Headers.GetValues("Set-Cookie"), value => value.StartsWith("__Host-Vault.Auth=", StringComparison.Ordinal));
+            Assert.Contains("; path=/", setCookie, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("; secure", setCookie, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("; httponly", setCookie, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("; samesite=strict", setCookie, StringComparison.OrdinalIgnoreCase);
+            AuthCookieByLogin[client] = setCookie.Split(';', 2)[0];
+        }
+
+        public async Task<List<string>> GetAuditEventTypesAsync()
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            return await database.AuditEvents.Select(value => value.EventType).ToListAsync();
+        }
+
+        public async Task<string> GetAuditTextAsync()
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            var rows = await database.AuditEvents.AsNoTracking().Select(value => new
+            {
+                value.EventType,
+                value.ActorUserId,
+                value.ActorDeviceId,
+                value.CorrelationId,
+                value.OccurredAt
+            }).ToListAsync();
+            return JsonSerializer.Serialize(rows);
+        }
+
+        public async Task<string> GetPasswordHashAsync(string email)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            return await database.Users.Where(value => value.NormalizedEmail == email.ToUpperInvariant())
+                .Select(value => value.PasswordHash).SingleAsync();
+        }
+
+        public async Task RunSeederAsync(string email, string password)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            var hasher = new PasswordHasher<VaultUser>(Options.Create(new PasswordHasherOptions { IterationCount = 10 }));
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Bootstrap:Email"] = email,
+                ["Bootstrap:Password"] = password
+            }).Build();
+            await new BootstrapAccountSeeder(database, hasher, configuration).SeedAsync(CancellationToken.None);
+        }
+
+        public void Dispose()
+        {
+            _factory.Dispose();
+            _connection.Dispose();
+        }
+    }
+}
