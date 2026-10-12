@@ -1,0 +1,34 @@
+# Local environment, credentials, and development certificates
+.env
+.env.*
+!.env.example
+.local/
+
+# .NET build and test output
+**/bin/
+**/obj/
+TestResults/
+*.trx
+coverage/
+*.coverage
+
+# Node build output and installed dependencies
+**/node_modules/
+**/dist/
+**/.vite/
+npm-debug.log*
+
+# Editor and OS files
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+Thumbs.db
+.DS_Store
+
+# Local logs and temporary data
+*.log
+*.tmp
+*.pfx
+*.p12
