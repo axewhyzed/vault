@@ -80,13 +80,13 @@ services:
     labels:
       traefik.enable: "true"
       traefik.docker.network: coolify
-      traefik.http.routers.vault.rule: Host(`${VAULT_DOMAIN:-vault.axewhyzedlabs.co.in}`)
+      traefik.http.routers.vault.rule: Host(`vault.axewhyzedlabs.co.in`)
       traefik.http.routers.vault.entrypoints: https
       traefik.http.routers.vault.tls: "true"
       traefik.http.routers.vault.tls.certresolver: letsencrypt
       traefik.http.services.vault.loadbalancer.server.port: "80"
       traefik.http.middlewares.vault-redirect.redirectscheme.scheme: https
-      traefik.http.routers.vault-http.rule: Host(`${VAULT_DOMAIN:-vault.axewhyzedlabs.co.in}`)
+      traefik.http.routers.vault-http.rule: Host(`vault.axewhyzedlabs.co.in`)
       traefik.http.routers.vault-http.entrypoints: http
       traefik.http.routers.vault-http.middlewares: vault-redirect
       traefik.http.routers.vault-http.service: vault
