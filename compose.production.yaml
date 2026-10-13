@@ -3,7 +3,7 @@ name: vault
 x-api-environment: &api-environment
   ASPNETCORE_ENVIRONMENT: Production
   ConnectionStrings__Vault: Host=${VAULT_DB_HOST:?Set the existing private PostgreSQL container hostname};Port=${VAULT_DB_PORT:-5432};Database=${VAULT_DB_NAME:?Set the dedicated Vault database};Username=${VAULT_DB_USER:?Set the dedicated Vault database role};Password=${VAULT_DB_PASSWORD:?Set the dedicated Vault database password}
-  Database__ApplyMigrations: "false"
+  Database__ApplyMigrations: "${DATABASE_APPLY_MIGRATIONS:-true}"
   Database__MigrationOnly: "false"
   Bootstrap__Email: ${VAULT_BOOTSTRAP_EMAIL:?Set the Vault bootstrap account email}
   Bootstrap__Password: ${VAULT_BOOTSTRAP_PASSWORD:?Set the Vault bootstrap account password}
