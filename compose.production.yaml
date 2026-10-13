@@ -8,7 +8,7 @@ x-api-environment: &api-environment
   Bootstrap__Email: ${VAULT_BOOTSTRAP_EMAIL:?Set the Vault bootstrap account email}
   Bootstrap__Password: ${VAULT_BOOTSTRAP_PASSWORD:?Set the Vault bootstrap account password}
   TrustedProxyIp: ${VAULT_WEB_IP:-172.31.20.10}
-  Security__AllowedOrigins__0: https://${VAULT_DOMAIN:-vault.axewhyzedlabs.co.in}
+  Security__AllowedOrigins__0: https://${VAULT_DOMAIN:?Set the public domain for Vault}
   DataProtection__ApplicationName: Vault
   DataProtection__KeysPath: /home/app/.aspnet/DataProtection-Keys
   Deployment__CommitSha: ${VAULT_DEPLOYED_COMMIT_SHA:?Set the immutable deployed commit SHA}
@@ -77,20 +77,6 @@ services:
     depends_on:
       api:
         condition: service_started
-    labels:
-      traefik.enable: "true"
-      traefik.docker.network: coolify
-      traefik.http.routers.vault.rule: Host(`vault.axewhyzedlabs.co.in`)
-      traefik.http.routers.vault.entrypoints: https
-      traefik.http.routers.vault.tls: "true"
-      traefik.http.routers.vault.tls.certresolver: letsencrypt
-      traefik.http.services.vault.loadbalancer.server.port: "80"
-      traefik.http.middlewares.vault-redirect.redirectscheme.scheme: https
-      traefik.http.routers.vault-http.rule: Host(`vault.axewhyzedlabs.co.in`)
-      traefik.http.routers.vault-http.entrypoints: http
-      traefik.http.routers.vault-http.middlewares: vault-redirect
-      traefik.http.routers.vault-http.service: vault
-      traefik.http.routers.vault-http.priority: "100"
     restart: unless-stopped
 
 volumes:
