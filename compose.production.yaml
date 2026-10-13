@@ -70,12 +70,6 @@ services:
     environment:
       NGINX_ENVSUBST_FILTER: ^VAULT_TRAEFIK_TRUSTED_IP$
       VAULT_TRAEFIK_TRUSTED_IP: ${VAULT_TRAEFIK_TRUSTED_IP:?Set the exact coolify-proxy container IP on the coolify network}
-    volumes:
-      - ./infra/nginx.production.conf:/etc/nginx/templates/production.conf.template:ro
-    command:
-      - /bin/sh
-      - -c
-      - rm -f /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'
     networks:
       vault_backend:
         ipv4_address: ${VAULT_WEB_IP:-172.31.20.10}
