@@ -40,7 +40,7 @@ Set the following in the Coolify API resource's environment/secret manager. Valu
 | `VAULT_DB_NAME` | `<dedicated-vault-database>` |
 | `VAULT_DB_USER` | `<dedicated-vault-role>` |
 | `VAULT_DB_PASSWORD` | `<secret>` |
-| `Database__ApplyMigrations` | `false` on the API service; the one-off `api-migrate` Compose profile enables migrations before rollout |
+| `Database__ApplyMigrations` | Defaults to `true` (via `DATABASE_APPLY_MIGRATIONS`); applies pending EF Core migrations automatically on startup before accepting traffic |
 | `Database__MigrationOnly` | `false` on the API service; the migration profile sets it to `true` |
 | `Bootstrap__Email` | `<owner-login-email>` |
 | `Bootstrap__Password` | `<unique-high-entropy-bootstrap-password>` |
