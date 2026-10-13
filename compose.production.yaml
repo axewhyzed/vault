@@ -38,6 +38,8 @@ services:
         ipv4_address: ${VAULT_API_IP:-172.31.20.11}
         aliases: [vault-api-backend]
       coolify: {}
+    expose:
+      - "8080"
     depends_on:
       dpkeys-init:
         condition: service_completed_successfully
@@ -74,6 +76,8 @@ services:
       vault_backend:
         ipv4_address: ${VAULT_WEB_IP:-172.31.20.10}
       coolify: {}
+    expose:
+      - "80"
     depends_on:
       api:
         condition: service_started
