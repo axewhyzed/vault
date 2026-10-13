@@ -25,6 +25,7 @@ services:
     restart: "no"
 
   api:
+    image: ${VAULT_API_IMAGE:-ghcr.io/axewhyzed/vault-api:latest}
     build:
       context: .
       dockerfile: src/api/Vault.Api/Dockerfile
@@ -43,6 +44,7 @@ services:
     restart: unless-stopped
 
   api-migrate:
+    image: ${VAULT_API_IMAGE:-ghcr.io/axewhyzed/vault-api:latest}
     build:
       context: .
       dockerfile: src/api/Vault.Api/Dockerfile
@@ -61,6 +63,7 @@ services:
     restart: "no"
 
   web:
+    image: ${VAULT_WEB_IMAGE:-ghcr.io/axewhyzed/vault-web:latest}
     build:
       context: web
       dockerfile: Dockerfile

@@ -24,7 +24,7 @@ services:
     build:
       context: .
       dockerfile: infra/backup/Dockerfile
-    image: vault-backup:18
+    image: ${VAULT_BACKUP_IMAGE:-ghcr.io/axewhyzed/vault-backup:latest}
     user: "0:0"
     command: ["/usr/local/bin/vault-restore", "${RESTORE_SNAPSHOT:?Set an explicit restic snapshot ID}"]
     environment:
