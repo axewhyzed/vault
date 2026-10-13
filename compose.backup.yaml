@@ -1,0 +1,78 @@
+name: vault-backup
+
+services:
+  backup:
+    build:
+      context: .
+      dockerfile: infra/backup/Dockerfile
+    image: vault-backup:18
+    user: "0:0"
+    command: ["/usr/local/bin/vault-backup"]
+    environment:
+      VAULT_BACKUP_TARGET: ${VAULT_BACKUP_TARGET:?Set VAULT_BACKUP_TARGET=production}
+      VAULT_DEPLOYED_COMMIT_SHA: ${VAULT_DEPLOYED_COMMIT_SHA:?Set the deployed immutable git SHA}
+      VAULT_DB_HOST: ${VAULT_DB_HOST:?Set the private PostgreSQL hostname}
+      PGHOST: ${VAULT_DB_HOST:?Set the private PostgreSQL hostname}
+      PGPORT: ${VAULT_DB_PORT:-5432}
+      PGDATABASE: ${VAULT_DB_NAME:?Set the dedicated Vault database name}
+      PGUSER: ${VAULT_DB_USER:?Set the dedicated Vault database role}
+      PGPASSWORD: ${VAULT_DB_PASSWORD:?Set the dedicated Vault database password}
+      PGSSLMODE: ${VAULT_DB_SSLMODE:-prefer}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:?Set the encrypted B2 repository URL}
+      RESTIC_PASSWORD_FILE: /run/secrets/restic_password
+      RESTIC_CACHE_DIR: /tmp/restic-cache
+      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/b2_credentials
+      AWS_PROFILE: default
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:?Set the B2 bucket region}
+    secrets:
+      - restic_password
+      - b2_credentials
+    volumes:
+      - type: volume
+        source: vault_file_data
+        target: /vault-files
+        read_only: true
+      - type: volume
+        source: vault_data_protection_keys
+        target: /data-protection-keys
+        read_only: true
+      - type: volume
+        source: backup_lock
+        target: /run/vault-backup
+    networks:
+      - coolify
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=2g,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_READ_SEARCH
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+secrets:
+  restic_password:
+    file: ${RESTIC_PASSWORD_FILE:?Set path to the host-side restic password file}
+  b2_credentials:
+    file: ${B2_CREDENTIALS_FILE:?Set path to the host-side B2 credentials file}
+
+volumes:
+  vault_file_data:
+    external: true
+    name: ${VAULT_FILE_VOLUME_NAME:-vault_file_data}
+  backup_lock:
+    name: vault_backup_lock
+  vault_data_protection_keys:
+    external: true
+    name: ${VAULT_DP_VOLUME_NAME:-vault_data_protection_keys}
+
+networks:
+  coolify:
+    external: true
+    name: coolify

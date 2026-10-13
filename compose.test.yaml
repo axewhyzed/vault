@@ -1,6 +1,8 @@
 services:
   api:
     environment:
+      Database__ApplyMigrations: "${VAULT_TEST_APPLY_MIGRATIONS:-false}"
+      Database__MigrationOnly: "${VAULT_TEST_MIGRATION_ONLY:-false}"
       TrustedProxyIp: ${VAULT_PROXY_IP:-172.30.11.10}
     networks:
       app_net:
