@@ -126,7 +126,10 @@ try {
 
     New-Item -ItemType Directory -Force -Path $temporaryRoot | Out-Null
     $cleanupNeeded = $true
-    Invoke-DockerCompose @('up', '--build', '--detach', '--wait', '--wait-timeout', "$StartupTimeoutSeconds")
+    Invoke-DockerCompose @('up', '--detach', '--wait', '--wait-timeout', "$StartupTimeoutSeconds", 'postgres')
+    Invoke-DockerCompose @('up', '--detach', 'dpkeys-init')
+    Invoke-DockerCompose @('run', '--build', '--rm', '--no-deps', '-e', 'Database__ApplyMigrations=true', '-e', 'Database__MigrationOnly=true', 'api')
+    Invoke-DockerCompose @('up', '--build', '--detach', '--wait', '--wait-timeout', "$StartupTimeoutSeconds", 'api', 'web')
 
     $migrationCount = & docker compose -p $projectName -f compose.yaml -f compose.test.yaml exec -T postgres psql -U vault_test -d vault_test -Atc "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('__EFMigrationsHistory', 'users', 'devices', 'audit_events');"
     if ($LASTEXITCODE -ne 0 -or [int]($migrationCount -join '').Trim() -ne 4) {
@@ -380,11 +383,12 @@ FROM generate_series(1, 9999);
         if ($LASTEXITCODE -ne 0) { throw 'Web lint failed.' }
     } finally { Pop-Location }
 
-    Write-Host 'Slice 3 checks passed: isolated PostgreSQL migration/bootstrap; HTTPS auth and text/URL create-list-detail-delete-expiry flows; replay/conflict, same-key concurrency, tied-cursor paging and quota-race checks; API tests; web build/lint.'
+    Write-Host 'Slice 3 and migration-mode checks passed: isolated PostgreSQL migration/bootstrap plus an explicit migration-only startup; HTTPS auth and text/URL create-list-detail-delete-expiry flows; replay/conflict, same-key concurrency, tied-cursor paging and quota-race checks; API tests; web build/lint.'
 }
 finally {
     if ($cleanupNeeded) {
         try { Invoke-DockerCompose @('down', '--volumes', '--remove-orphans') } catch { Write-Warning "Test stack cleanup reported: $_" }
+        & docker image rm "$projectName-api" "$projectName-web" *> $null
     }
     foreach ($name in $environmentNames) { [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process') }
     if (Test-Path -LiteralPath $temporaryRoot) { Remove-Item -LiteralPath $temporaryRoot -Recurse -Force }

@@ -1,0 +1,95 @@
+name: vault-restore
+
+services:
+  restore-db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${RESTORE_DB_NAME:-vault_restore}
+      POSTGRES_USER: ${RESTORE_DB_USER:-vault_restore}
+      POSTGRES_PASSWORD_FILE: /run/secrets/restore_db_password
+    secrets:
+      - restore_db_password
+    volumes:
+      - restore_db_data:/var/lib/postgresql
+    networks:
+      - restore_isolated
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: "no"
+
+  restore:
+    build:
+      context: .
+      dockerfile: infra/backup/Dockerfile
+    image: vault-backup:18
+    user: "0:0"
+    command: ["/usr/local/bin/vault-restore", "${RESTORE_SNAPSHOT:?Set an explicit restic snapshot ID}"]
+    environment:
+      RESTORE_TARGET_ID: ${RESTORE_TARGET_ID:?Set an explicit disposable restore target ID}
+      RESTORE_CONFIRM_ISOLATED: ${RESTORE_CONFIRM_ISOLATED:?Set to yes only for an isolated restore}
+      RESTORE_DB_PASSWORD_FILE: /run/secrets/restore_db_password
+      RESTORE_FILE_UID: ${RESTORE_FILE_UID:-1654}
+      RESTORE_FILE_GID: ${RESTORE_FILE_GID:-1654}
+      PGHOST: restore-db
+      PGPORT: "5432"
+      PGDATABASE: ${RESTORE_DB_NAME:-vault_restore}
+      PGUSER: ${RESTORE_DB_USER:-vault_restore}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:?Set the encrypted B2 repository URL}
+      RESTIC_PASSWORD_FILE: /run/secrets/restic_password
+      RESTIC_CACHE_DIR: /tmp/restic-cache
+      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/b2_credentials
+      AWS_PROFILE: default
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:?Set the B2 bucket region}
+    secrets:
+      - restic_password
+      - b2_credentials
+      - restore_db_password
+    volumes:
+      - restore_file_data:/restore-files
+      - restore_data_protection_keys:/restore-data-protection-keys
+    networks:
+      - restore_isolated
+      - restore_egress
+    depends_on:
+      restore-db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=4g,mode=1777
+    restart: "no"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+secrets:
+  restic_password:
+    file: ${RESTIC_PASSWORD_FILE:?Set path to the host-side restic password file}
+  b2_credentials:
+    file: ${B2_CREDENTIALS_FILE:?Set path to the host-side B2 credentials file}
+  restore_db_password:
+    file: ${RESTORE_DB_PASSWORD_FILE:?Set path to the temporary isolated restore DB password}
+
+volumes:
+  restore_db_data:
+    name: vault_restore_db_${RESTORE_TARGET_ID:?Set an explicit disposable restore target ID}
+  restore_file_data:
+    name: vault_restore_files_${RESTORE_TARGET_ID:?Set an explicit disposable restore target ID}
+  restore_data_protection_keys:
+    name: vault_restore_dp_keys_${RESTORE_TARGET_ID:?Set an explicit disposable restore target ID}
+
+networks:
+  restore_isolated:
+    internal: true
+  restore_egress:
+    driver: bridge

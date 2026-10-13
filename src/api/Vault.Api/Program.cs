@@ -110,13 +110,21 @@ app.MapMonitoringEndpoints();
 app.MapIdentityEndpoints();
 app.MapTransferEndpoints();
 
-if (app.Configuration.GetValue<bool>("Database:ApplyMigrations"))
+var applyMigrations = app.Configuration.GetValue<bool>("Database:ApplyMigrations");
+var migrationOnly = app.Configuration.GetValue<bool>("Database:MigrationOnly");
+if (migrationOnly && !applyMigrations)
+    throw new InvalidOperationException("Database:MigrationOnly requires Database:ApplyMigrations to be enabled.");
+
+if (applyMigrations)
 {
     await using var scope = app.Services.CreateAsyncScope();
     var db = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
     await db.Database.MigrateAsync();
     await scope.ServiceProvider.GetRequiredService<BootstrapAccountSeeder>().SeedAsync(CancellationToken.None);
 }
+
+if (migrationOnly)
+    return;
 
 app.Run();
 

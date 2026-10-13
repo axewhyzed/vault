@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Vault encrypted off-site backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+Unit=vault-backup.service
+
+[Install]
+WantedBy=timers.target

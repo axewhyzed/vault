@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
+!infra/backup/vault-backup.env.example
 .local/
 
 # .NET build and test output
@@ -11,6 +13,8 @@ TestResults/
 *.trx
 coverage/
 *.coverage
+**/__pycache__/
+*.py[cod]
 
 # Node build output and installed dependencies
 **/node_modules/
