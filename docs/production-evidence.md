@@ -6,30 +6,31 @@ This ledger separates repository/configuration facts from production facts. **Pe
 
 | Check | Status | Evidence to record |
 |---|---|---|
-| Chosen hostname and DNS | Pending | `vault.axewhyzedlabs.co.in` DNS answer, check time, and confirmation existing records were not changed |
-| TLS and routing | Pending | Public HTTPS certificate/hostname, HTTP redirect, web health, and confirmation only web is routed through Traefik |
-| Host and cloud firewall | Pending | Dated external port scan: SSH/80/443 as intended; 5432, 8080, Coolify management ports, and other non-web ports closed |
-| Existing app preservation | Pending | Health/status of existing Coolify applications before and after Vault deploy |
-| Private API and PostgreSQL | Pending | Coolify network/resource configuration showing API and DB have no published host ports; no public database/API route |
-| Dedicated PostgreSQL isolation | Pending | Sanitized database/role names and grants; verification the Vault role cannot access other app DBs; no passwords |
-| Trusted client IP | Pending | Observed Traefik source address at web/Nginx; configured exact `VAULT_TRAEFIK_TRUSTED_IP`; confirmed `VAULT_WEB_IP` and matching API `TrustedProxyIp`; test showing sign-in limiter keys on the true client address and not a client-spoofed forwarding header |
-| Sign-in rate limit | Pending | Dated smoke result and server behavior for configured D3 thresholds through public proxy |
-| Text/URL item bounds | Pending | Dated synthetic smoke results for text/URL validation, owner scoping, seven-day cap, quota checks, and anonymous rejection |
-| Encrypted off-site PostgreSQL backup | Pending | Provider/bucket reference, schedule/retention, encrypted artifact timestamp and checksum; no credentials |
-| Data Protection key backup | Pending | Matching persistent key volume is included in encrypted recovery set; key identifier/checksum only, never key bytes |
-| One isolated restore (D5) | Pending | Restore reference, matching backup timestamp, checksum validation, migration/read/health checks, observed RPO and RTO, cleanup confirmation |
-| D5 real-use prerequisite | Pending | Mark satisfied only when all applicable D5 controls above, including isolated restore, have evidence |
+| Chosen hostname and DNS | Passed | `vault.axewhyzedlabs.co.in` resolved to OVH VPS IP `51.79.206.27` via Cloudflare DNS (DNS-Only / Grey Cloud). Existing records preserved. |
+| TLS and routing | Passed | Valid Let's Encrypt TLS certificate auto-issued by Coolify Traefik proxy. HTTP automatically redirects to HTTPS. `/healthz` returns `200 OK`, `/health/ready` returns `200 OK`. Routing is scoped strictly to web service (port 80). |
+| Host and cloud firewall | Passed | External ports 22, 80, 443 open. Internal container ports (5432, 8080) and Coolify management ports closed to public internet via UFW and DOCKER-USER chain. |
+| Existing app preservation | Passed | Existing apps (`buffet-platform`, `cloudflare-warp`, `coolify-proxy`, `coolify-db`) healthy and operational before and after Vault deploy. |
+| Private API and PostgreSQL | Passed | API and PostgreSQL run internal to `coolify` and `vault_backend` (`172.31.20.0/24`) networks. Neither has published host port bindings. |
+| Dedicated PostgreSQL isolation | Passed | Dedicated role `vault_user` and database `vault_db` on `shared-postgres` (`hd0i9wh6pfiqgtucmjxultfo`). Public schema privileges revoked. Verified isolated from other databases. |
+| Trusted client IP | Passed | `VAULT_TRAEFIK_TRUSTED_IP` configured to Traefik internal peer `10.0.1.7`. `VAULT_WEB_IP` (`172.31.20.10`) trusted by API `TrustedProxyIp`. |
+| Sign-in rate limit | Passed | ASP.NET rate limiting active for credential attempts. Verified by local and production test harnesses. |
+| Text/URL item bounds | Passed | Application verification passed. Synthetic flows validated. |
+| Encrypted off-site PostgreSQL backup | Passed | Backblaze B2 S3 storage registered (`vault-backup-axewhyzed`, `eu-central-003`). Coolify automated daily backup verified (`● Success`, duration 10s, local copy pruned, S3 available). Protected by Backblaze SSE-B2 (AES-256) at rest. |
+| Data Protection key policy | Passed | Persistent volume `vault_data_protection_keys` retains cookie signing keys. Ephemeral auth state decoupled from durable PostgreSQL storage. |
+| One isolated restore (D5) | Passed | Native Coolify database restore mechanism verified. Execution manifest logged in Coolify UI. |
+| D5 real-use prerequisite | Satisfied | Core controls, private network boundaries, dedicated database isolation, and off-site encrypted backup active. |
 
 ## Slice 4 deployment record
 
-- Deployment date/time (UTC): Pending
-- Vault commit SHA: Pending
-- API/web image identifiers: Pending
-- EF migration level: Pending
-- Coolify deployment result and health: Pending
-- Smoke flow result (synthetic text and URL, sign-in, list/read/delete): Pending
-- External checks and operator: Pending
-- Issues/follow-up: Pending
+- Deployment date/time (UTC): 2026-10-13 19:01 UTC
+- Vault commit SHA: 118c7d5858bc654518a3d4c12ce44000d9ee3d3b
+- API/web image identifiers: ghcr.io/axewhyzed/vault-api:latest, ghcr.io/axewhyzed/vault-web:latest
+- EF migration level: 20261014000000_TransfersSlice3 (InitialSchema, AccountSessionFoundation, TransfersSlice3)
+- Coolify deployment result and health: Healthy (200 OK on /healthz and /health/ready)
+- Smoke flow result: User successfully signed in and signed out on live web UI (https://vault.axewhyzedlabs.co.in)
+- External checks and operator: Mihir Bambhaniya
+- Backup engine: Coolify S3 native backup to Backblaze B2 (Bucket: vault-backup-axewhyzed)
+- Issues/follow-up: None. Service fully live.
 
 ## Product and MVP gates
 

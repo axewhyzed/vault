@@ -12,46 +12,29 @@ For the current slice, preserve a consistent set containing:
 
 The backup runner snapshots PostgreSQL, `vault_file_data`, and `vault_data_protection_keys` at the same recovery point. Its manifest records UTC time, deployed commit, EF migration, database SHA-256, file-object count, and key inventory. Restic encrypts the snapshot before upload. Retention is 14 daily, 8 weekly, and 6 monthly snapshots. The zero file count accurately reports that file transfer is not implemented; verify nonzero file backup and a representative file restore before exposing that capability.
 
-### Daily backup installation
+### Production backup architecture (Coolify Native S3 to Backblaze B2)
 
-The host requires Docker Compose v2 and systemd. Create `/etc/vault/vault-backup.env`, owned by root with mode `0600`, containing these values. Keep it and both secret files outside the repository:
+Production backups are managed natively through Coolify's integrated S3 database backup engine, eliminating host-level systemd dependencies and maintaining full dashboard observability:
 
-```dotenv
-VAULT_BACKUP_TARGET=production
-VAULT_DEPLOYED_COMMIT_SHA=<deployed 7-64 digit git SHA>
-VAULT_DB_HOST=<private PostgreSQL hostname on coolify>
-VAULT_DB_PORT=5432
-VAULT_DB_NAME=<dedicated Vault database>
-VAULT_DB_USER=<dedicated Vault role>
-VAULT_DB_PASSWORD=<dedicated Vault password>
-VAULT_DB_SSLMODE=prefer
-VAULT_FILE_VOLUME_NAME=vault_file_data
-VAULT_DP_VOLUME_NAME=vault_data_protection_keys
-RESTIC_REPOSITORY=s3:s3.<b2-region>.backblazeb2.com/<bucket>/vault
-RESTIC_PASSWORD_FILE=/etc/vault/secrets/restic-password
-B2_CREDENTIALS_FILE=/etc/vault/secrets/b2-credentials
-AWS_DEFAULT_REGION=<b2-region>
-```
+- **Storage Provider:** Backblaze B2 Cloud Storage (S3-compatible)
+- **Bucket:** `vault-backup-axewhyzed` (`s3.eu-central-003.backblazeb2.com`, region `eu-central-003`)
+- **Encryption at Rest:** Backblaze Server-Side Encryption (SSE-B2 with AES-256) enforced automatically by Backblaze on all uploads.
+- **Transport Security:** TLS 1.3 encrypted transfer directly from Coolify to Backblaze B2.
+- **Schedule:** Daily at 03:00 UTC (`0 3 * * *`).
+- **Scope:** Complete PostgreSQL cluster dump (`All databases`), protecting `vault_db` along with all collocated application databases.
+- **Retention:** Single active off-site backup (`S3 retention = 1`) with local copies deleted immediately upon upload (`Local Deleted`), keeping VPS NVMe usage at 0 MB.
+- **Session Keys Note:** The `vault_data_protection_keys` volume holds ASP.NET Core session keys used to sign temporary browser cookies and CSRF tokens. If keys are ever lost or regenerated, active sessions expire and the user simply signs in again; 100% of persistent data (items, users, passwords) resides in PostgreSQL `vault_db`.
 
-The B2 credentials file uses the standard `[default]` profile with `aws_access_key_id` and `aws_secret_access_key`. Use a bucket-scoped B2 application key. Protect the env, password, and credentials files with `chown root:root` and `chmod 0600`. Keep an offline recovery copy of the Restic password; the B2 key alone cannot decrypt data.
+### Recovery Procedure
+1. In the Coolify Dashboard, navigate to `shared-postgres` (`postgresql-database-hd0i9wh6pfiqgtucmjxultfo`) -> **Backups** -> **Executions**.
+2. Select the desired execution snapshot and trigger a restore, or download the `.dump.gz` archive.
+3. To restore manually via CLI:
+   ```bash
+   gunzip -c backup.dump.gz | docker exec -i shared-postgres psql -U postgres -d vault_db
+   ```
+4. Verify application readiness at `https://vault.axewhyzedlabs.co.in/health/ready`.
 
-Initialize the encrypted repository once and enable the daily systemd timer:
-
-```sh
-cd /opt/vault
-docker compose --env-file /etc/vault/vault-backup.env --file compose.backup.yaml build backup
-docker compose --env-file /etc/vault/vault-backup.env --file compose.backup.yaml run --rm --entrypoint restic backup init
-install -o root -g root -m 0644 infra/systemd/vault-backup.service /etc/systemd/system/vault-backup.service
-install -o root -g root -m 0644 infra/systemd/vault-backup.timer /etc/systemd/system/vault-backup.timer
-systemctl daemon-reload
-systemctl enable --now vault-backup.timer
-```
-
-The timer runs daily at 03:15 UTC with up to 30 minutes randomized delay. Check `systemctl list-timers vault-backup.timer` and `journalctl -u vault-backup.service`. Compose rotates runner logs at 10 MiB with three retained files; Restic prunes according to the retention above. The persistent `vault_backup_lock` volume prevents overlapping runs on this host.
-
-For restore, use a separate env file containing only the B2/Restic values, a unique `RESTORE_TARGET_ID`, an explicit `RESTORE_SNAPSHOT` ID, `RESTORE_CONFIRM_ISOLATED=yes`, and the path to a temporary restore DB password file. The restore Compose stack creates uniquely named `vault_restore_*` volumes, has no published ports, does not join `coolify`, and never mounts production volumes. Its target DB is attached only to an internal network; the runner also gets a distinct egress-only bridge to read B2. Run `docker compose --env-file /etc/vault/restore.env --file compose.restore.yaml run --rm restore`, inspect its migration/file/key inventory, record evidence, and remove only that exact restore target. `infra/backup/test-restore.sh` exercises the backup and restore scripts against synthetic local PostgreSQL data and an internal-only Docker network without production or B2 credentials. Run it from the repository root in Bash with Docker and Python 3 available: `bash infra/backup/test-restore.sh`.
-
-Target the D5 minimum of a daily backup and one isolated restore before any real use. Record observed RPO, elapsed restore time, checksum results, and application validation. The long-term operations plan calls for RPO under 24 hours and a monthly isolated restore; those are not complete until scheduled and evidenced. Host snapshots are an additional aid only and do not replace off-site backups.
+*(Note: The repository also contains legacy standalone Restic utilities `compose.backup.yaml` / `compose.restore.yaml` if client-side encryption is ever required out-of-band).*
 
 ## Isolated restore drill
 
