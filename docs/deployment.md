@@ -64,7 +64,7 @@ The sign-in field accepts either the account email or its username. A normal boo
 
 To set the username to `mihir0234` and change the password on the live VPS:
 
-1. In the Vault resource's Coolify environment/secrets, set `VAULT_BOOTSTRAP_USERNAME=mihir0234` and replace `VAULT_BOOTSTRAP_PASSWORD` with a new unique password of at least 14 characters. Keep `VAULT_BOOTSTRAP_EMAIL` unchanged so the command targets the current bootstrap account. Do not put the password in a command, this repository, or the evidence log.
+1. In the Vault resource's Coolify environment/secrets, set `VAULT_BOOTSTRAP_USERNAME=mihir0234` and replace `VAULT_BOOTSTRAP_PASSWORD` with a new unique password of at least 3 characters. Keep `VAULT_BOOTSTRAP_EMAIL` unchanged so the command targets the current bootstrap account. Do not put the password in a command, this repository, or the evidence log.
 2. Deploy the new immutable Vault commit and ensure its EF migration has completed. The current deployment may use its configured automatic migrations; otherwise run the one-off `api-migrate` service with the `migrate` profile. The migration adds nullable username columns and the normal seed fills a missing username without resetting the current password.
 3. Open a terminal for the running Vault API container in Coolify and run:
 
