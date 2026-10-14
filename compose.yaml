@@ -36,6 +36,7 @@ services:
       Bootstrap__Email: ${VAULT_BOOTSTRAP_EMAIL:-owner@vault.local}
       Bootstrap__Username: ${VAULT_BOOTSTRAP_USERNAME:-owner}
       Bootstrap__Password: ${VAULT_BOOTSTRAP_PASSWORD:?Run ./scripts/setup-local.ps1 to create .env first}
+      Bootstrap__SyncCredentials: "${VAULT_BOOTSTRAP_SYNC_CREDENTIALS:-true}"
       TrustedProxyIp: ${VAULT_PROXY_IP:-172.30.10.10}
       Security__AllowedOrigins__0: https://localhost:${VAULT_WEB_PORT:-8080}
       Security__AllowedOrigins__1: ${VAULT_LAN_ORIGIN:-}
