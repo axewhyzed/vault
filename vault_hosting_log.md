@@ -5,7 +5,10 @@
 **Control Plane:** Coolify v4.4.8 on Docker (`localhost`)  
 **Reverse Proxy:** Traefik v3.7 (`coolify-proxy`) on `coolify` Docker network  
 **Database:** Shared PostgreSQL 18 container (`hd0i9wh6pfiqgtucmjxultfo`)  
-**Reference Runbook:** `docs/deployment.md`, `docs/recovery.md`
+**Reference Runbook:** `docs/deployment.md`, `docs/recovery.md`  
+**Current Live Production Commit:** `c2ac0b4defddc8ac98bad70da8fdf3c9c049d2cf`  
+**Active EF Migration Level:** `20261014154206_UsernameLoginAndBootstrapCredentialManagement`  
+**Initial Deployment Commit:** `6ee1fcfa9e295459e24e98862c0a6d270f3878ce`
 
 ---
 
@@ -52,11 +55,11 @@
 ### Step 4.5: CI/CD Pipeline & GHCR Image Publishing (Completed)
 * **Strategy:** Offload .NET and Node/Vite container builds from the 4 GB OVH VPS to GitHub Actions.
 * **Workflow:** `.github/workflows/deploy.yml` (PASSED green)
-* **Deployed Commit SHA:** `6ee1fcfa9e295459e24e98862c0a6d270f3878ce`
+* **Initial CI/CD Build Commit SHA:** `6ee1fcfa9e295459e24e98862c0a6d270f3878ce` *(superseded by current live production commit `c2ac0b4defddc8ac98bad70da8fdf3c9c049d2cf` documented in Step 10/11)*
 * **Artifacts Published to GHCR:**
-  * `ghcr.io/axewhyzed/vault-api:latest` (and `:6ee1fcfa9e295459e24e98862c0a6d270f3878ce`)
-  * `ghcr.io/axewhyzed/vault-web:latest` (and `:6ee1fcfa9e295459e24e98862c0a6d270f3878ce`)
-  * `ghcr.io/axewhyzed/vault-backup:latest` (and `:6ee1fcfa9e295459e24e98862c0a6d270f3878ce`)
+  * `ghcr.io/axewhyzed/vault-api:latest`
+  * `ghcr.io/axewhyzed/vault-web:latest`
+  * `ghcr.io/axewhyzed/vault-backup:latest`
 * **Status:** Verified and published.
 
 ---
