@@ -17,13 +17,13 @@ This ledger separates repository/configuration facts from production facts. **Pe
 | Text/URL item bounds | Passed | Application verification passed. Synthetic flows validated. |
 | Encrypted off-site PostgreSQL backup | Passed | Backblaze B2 S3 storage registered (`vault-backup-axewhyzed`, `eu-central-003`). Coolify automated daily backup verified (`● Success`, duration 10s, local copy pruned, S3 available). Protected by Backblaze SSE-B2 (AES-256) at rest. |
 | Data Protection key policy | Passed | Persistent volume `vault_data_protection_keys` retains cookie signing keys. Ephemeral auth state decoupled from durable PostgreSQL storage. |
-| One isolated restore (D5) | Passed | Native Coolify database restore mechanism verified. Execution manifest logged in Coolify UI. |
-| D5 real-use prerequisite | Satisfied | Core controls, private network boundaries, dedicated database isolation, and off-site encrypted backup active. |
+| One isolated restore (D5) | Pending | Automated off-site S3 backup to Backblaze B2 verified active. Formal isolated restore drill to a separate test database container remains pending execution. |
+| D5 real-use prerequisite | Pending | Blocked on completion and recording of the isolated restore drill. Service is live for synthetic/operator smoke testing only; real content entry held until restore drill passes. |
 
 ## Slice 4 deployment record
 
-- Deployment date/time (UTC): 2026-10-13 19:01 UTC
-- Vault commit SHA: 118c7d5858bc654518a3d4c12ce44000d9ee3d3b
+- Deployment date/time (UTC): 2026-10-14 17:45 UTC
+- Vault commit SHA: c2ac0b4defddc8ac98bad70da8fdf3c9c049d2cf
 - API/web image identifiers: ghcr.io/axewhyzed/vault-api:latest, ghcr.io/axewhyzed/vault-web:latest
 - EF migration level: 20261014154206_UsernameLoginAndBootstrapCredentialManagement (InitialSchema, AccountSessionFoundation, TransfersSlice3, UsernameLoginAndBootstrapCredentialManagement)
 - Coolify deployment result and health: Healthy (200 OK on /healthz, /health/ready, and /api/v1/auth/csrf)

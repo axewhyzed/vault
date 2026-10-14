@@ -4,13 +4,16 @@ This document is the recovery procedure for the thin text/URL deployment. Recove
 
 ## Recovery set and policy
 
-For the current slice, preserve a consistent set containing:
+For the current slice (authenticated text and URLs), the recovery set is structured as follows:
 
-- An encrypted off-site PostgreSQL backup for the dedicated Vault database, with creation time and SHA-256 checksum.
-- The matching `vault_file_data` volume (currently recorded as `object_count: 0`) and persistent ASP.NET Data Protection key volume, encrypted off-site with the database. Keep its application name `Vault` and restore the keys to `/home/app/.aspnet/DataProtection-Keys`. Without matching keys, existing authentication cookies may fail after recovery; users may need to sign in again.
-- The API/web commit SHA and image identifiers, relevant EF migration level, non-secret configuration names/values, and restore instructions. Store secret values and encryption recovery material separately in the approved secret manager.
-
-The backup runner snapshots PostgreSQL, `vault_file_data`, and `vault_data_protection_keys` at the same recovery point. Its manifest records UTC time, deployed commit, EF migration, database SHA-256, file-object count, and key inventory. Restic encrypts the snapshot before upload. Retention is 14 daily, 8 weekly, and 6 monthly snapshots. The zero file count accurately reports that file transfer is not implemented; verify nonzero file backup and a representative file restore before exposing that capability.
+1. **Durable Application Data (PostgreSQL `vault_db`):**
+   - 100% of persistent state—including user accounts, usernames, password hashes, device registrations, audit events, items (text and URLs), and quotas—resides inside the dedicated PostgreSQL `vault_db`.
+   - Protected daily via Coolify's native S3 backup to Backblaze B2 (`vault-backup-axewhyzed`).
+2. **Ephemeral Session Signing Keys (`vault_data_protection_keys`):**
+   - Holds ASP.NET Core Data Protection keys used exclusively to encrypt temporary 8-hour authentication cookies (`__Host-Vault.Auth`) and CSRF tokens (`__Host-Vault.Csrf`).
+   - Decoupled from durable data: if recovered without keys, ASP.NET Core automatically provisions a new key set. Active browser sessions expire and users simply sign in again. No user items, credentials, or application data are lost.
+3. **Binary File Volume (`vault_file_data`):**
+   - Currently declared but unused (`object_count: 0`), as binary file transfer is outside Slice 4 scope. When file transfer is introduced, volume snapshot replication will be integrated into the backup pipeline.
 
 ### Production backup architecture (Coolify Native S3 to Backblaze B2)
 
@@ -23,7 +26,7 @@ Production backups are managed natively through Coolify's integrated S3 database
 - **Schedule:** Daily at 03:00 UTC (`0 3 * * *`).
 - **Scope:** Complete PostgreSQL cluster dump (`All databases`), protecting `vault_db` along with all collocated application databases.
 - **Retention:** Single active off-site backup (`S3 retention = 1`) with local copies deleted immediately upon upload (`Local Deleted`), keeping VPS NVMe usage at 0 MB.
-- **Session Keys Note:** The `vault_data_protection_keys` volume holds ASP.NET Core session keys used to sign temporary browser cookies and CSRF tokens. If keys are ever lost or regenerated, active sessions expire and the user simply signs in again; 100% of persistent data (items, users, passwords) resides in PostgreSQL `vault_db`.
+- **Out-of-Band Archiving:** The repository retains standalone Restic utilities (`compose.backup.yaml` / `compose.restore.yaml`) for optional multi-volume client-encrypted offline archives.
 
 ### Recovery Procedure
 1. In the Coolify Dashboard, navigate to `shared-postgres` (`postgresql-database-hd0i9wh6pfiqgtucmjxultfo`) -> **Backups** -> **Executions**.
@@ -34,20 +37,20 @@ Production backups are managed natively through Coolify's integrated S3 database
    ```
 4. Verify application readiness at `https://vault.axewhyzedlabs.co.in/health/ready`.
 
-*(Note: The repository also contains legacy standalone Restic utilities `compose.backup.yaml` / `compose.restore.yaml` if client-side encryption is ever required out-of-band).*
-
 ## Isolated restore drill
 
-Use a separate, access-restricted Coolify environment or isolated host/network. Do not restore over production or connect a restore target to the live public hostname.
+Use a separate, access-restricted environment or isolated database target on the private network. Do not restore over production or expose a restore target to the public domain.
 
-1. Select a PostgreSQL backup and Data Protection key backup from the same recovery point. Verify the backup artifact checksum and decryption material before restoring. Record source timestamp and expected database/migration version.
-2. Provision an isolated PostgreSQL database and private app network with no public database/API port. Restore the database into that target using the documented tool and the target database's authorized admin role. Keep production credentials out of the isolated environment.
-3. Restore the matching Data Protection key files into a dedicated volume mounted at `/home/app/.aspnet/DataProtection-Keys`, with ownership/permissions suitable for the non-root API process. Do not mix key sets between environments.
-4. Deploy the recorded API and web images using isolated bootstrap credentials, `Database__ApplyMigrations=false`, `DataProtection__ApplicationName=Vault`, and a test-only allowed origin. Keep the API and database private. Do not configure the public production DNS name.
-5. Verify health endpoints, expected migration state, and that a synthetic known text/URL fixture from the backup can be listed/read by its owner. Confirm another unauthenticated request is rejected. If using a restored cookie/key compatibility check, use only a controlled, nonproduction session and document its result.
-6. Verify row counts or a safe metadata summary against the backup manifest; do not copy item content into the evidence record. Run database integrity/consistency checks appropriate to the deployed PostgreSQL version.
-7. Record checksums, backup timestamp, measured RPO, restore start/end and RTO, data validation, failures, corrective actions, and operator in `production-evidence.md` or a dated evidence attachment. Mark the restore complete only after the application-level checks pass.
-8. Tear down the isolated restore environment and its test credentials/volumes using the approved cleanup process. Preserve the evidence and required backup artifacts. Confirm production stayed healthy and unchanged.
+1. Retrieve the latest PostgreSQL backup snapshot archive (`.dump.gz`) from Backblaze B2 via Coolify or S3 CLI. Verify archive integrity and record the source timestamp.
+2. Provision an isolated PostgreSQL test database (e.g. `vault_restore_test`) on the private network using an authorized administrator role.
+3. Restore the database dump into the test database:
+   ```bash
+   gunzip -c backup.dump.gz | docker exec -i shared-postgres psql -U postgres -d vault_restore_test
+   ```
+4. Run schema and data validation queries on the test database: confirm table row counts, verify the expected EF Core migration history level (`20261014154206_UsernameLoginAndBootstrapCredentialManagement`), and confirm the bootstrap account record exists.
+5. Optionally deploy a private, non-routed test API container pointing to `vault_restore_test` with `Database__ApplyMigrations=false` to verify `/health/ready` returns 200 OK without public exposure.
+6. Record start/end time, source snapshot timestamp, measured RTO, migration level, verification queries, operator, and pass/fail outcome in the `Restore event template` in `docs/production-evidence.md`.
+7. Drop the temporary test database (`DROP DATABASE vault_restore_test;`) and clean up temporary test containers. Confirm production remained unaffected.
 
 ## Production incident recovery
 
