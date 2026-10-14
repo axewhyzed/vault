@@ -12,14 +12,16 @@ $testWebPort = $listener.LocalEndpoint.Port
 $listener.Stop()
 $baseUrl = "https://localhost:$testWebPort"
 $testEmail = 'slice3-test@example.invalid'
-$testPassword = 'VaultTestPassword_2026!'
+$testUsername = 'vault-test-owner'
+$initialTestPassword = 'VaultInitialPassword_2026!'
+$testPassword = 'VaultUpdatedPassword_2026!'
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("vault-slice3-" + [guid]::NewGuid().ToString('N'))
 $testTlsRoot = Join-Path $temporaryRoot 'tls'
 $environmentNames = @(
     'VAULT_WEB_PORT', 'VAULT_BIND_ADDRESS', 'VAULT_LAN_ORIGIN', 'VAULT_TLS_DIRECTORY',
     'VAULT_NETWORK_SUBNET', 'VAULT_PROXY_IP', 'VAULT_API_IP',
     'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
-    'VAULT_BOOTSTRAP_EMAIL', 'VAULT_BOOTSTRAP_PASSWORD'
+    'VAULT_BOOTSTRAP_EMAIL', 'VAULT_BOOTSTRAP_USERNAME', 'VAULT_BOOTSTRAP_PASSWORD'
 )
 $previousEnvironment = @{}
 foreach ($name in $environmentNames) { $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
@@ -122,13 +124,16 @@ try {
     $env:POSTGRES_USER = 'vault_test'
     $env:POSTGRES_PASSWORD = 'slice2-test-database-password'
     $env:VAULT_BOOTSTRAP_EMAIL = $testEmail
-    $env:VAULT_BOOTSTRAP_PASSWORD = $testPassword
+    $env:VAULT_BOOTSTRAP_USERNAME = $testUsername
+    $env:VAULT_BOOTSTRAP_PASSWORD = $initialTestPassword
 
     New-Item -ItemType Directory -Force -Path $temporaryRoot | Out-Null
     $cleanupNeeded = $true
     Invoke-DockerCompose @('up', '--detach', '--wait', '--wait-timeout', "$StartupTimeoutSeconds", 'postgres')
     Invoke-DockerCompose @('up', '--detach', 'dpkeys-init')
     Invoke-DockerCompose @('run', '--build', '--rm', '--no-deps', '-e', 'Database__ApplyMigrations=true', '-e', 'Database__MigrationOnly=true', 'api')
+    Invoke-DockerCompose @('run', '--rm', '--no-deps', '-e', "Bootstrap__Password=$testPassword", 'api', '--update-bootstrap-credentials')
+    $env:VAULT_BOOTSTRAP_PASSWORD = $testPassword
     Invoke-DockerCompose @('up', '--build', '--detach', '--wait', '--wait-timeout', "$StartupTimeoutSeconds", 'api', 'web')
 
     $migrationCount = & docker compose -p $projectName -f compose.yaml -f compose.test.yaml exec -T postgres psql -U vault_test -d vault_test -Atc "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('__EFMigrationsHistory', 'users', 'devices', 'audit_events');"
@@ -158,7 +163,7 @@ try {
     $csrf = Get-Content -Raw -LiteralPath $bodyPath | ConvertFrom-Json
     if (-not $csrf.token -or $csrf.headerName -ne 'X-CSRF-TOKEN') { throw 'CSRF endpoint returned an invalid token contract.' }
 
-    $loginBody = @{ email = $testEmail; password = $testPassword } | ConvertTo-Json -Compress
+    $loginBody = @{ identifier = $testUsername; password = $testPassword } | ConvertTo-Json -Compress
     $loginPath = Join-Path $temporaryRoot 'login.json'
     [System.IO.File]::WriteAllText($loginPath, $loginBody, [System.Text.UTF8Encoding]::new($false))
     $status = Invoke-Curl @('--cacert', $certPath, '--cookie', $jarPath, '--cookie-jar', $jarPath, '--dump-header', $headersPath, '--header', "Origin: $origin", '--header', "$($csrf.headerName): $($csrf.token)", '--header', 'Content-Type: application/json', '--data-binary', "@$loginPath", "$baseUrl/api/v1/auth/login") $bodyPath
@@ -383,7 +388,7 @@ FROM generate_series(1, 9999);
         if ($LASTEXITCODE -ne 0) { throw 'Web lint failed.' }
     } finally { Pop-Location }
 
-    Write-Host 'Slice 3 and migration-mode checks passed: isolated PostgreSQL migration/bootstrap plus an explicit migration-only startup; HTTPS auth and text/URL create-list-detail-delete-expiry flows; replay/conflict, same-key concurrency, tied-cursor paging and quota-race checks; API tests; web build/lint.'
+    Write-Host 'Identity and Slice 3 checks passed: one-shot migrations; bootstrap username/password update and session revocation; HTTPS username sign-in and text/URL create-list-detail-delete-expiry flows; replay/conflict, same-key concurrency, tied-cursor paging and quota-race checks; API tests; web build/lint.'
 }
 finally {
     if ($cleanupNeeded) {

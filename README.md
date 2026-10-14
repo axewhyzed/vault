@@ -1,6 +1,6 @@
 # Vault
 
-Vault is a private cross-device inbox. The current local slice supports signing in to the React web client, sending text and HTTP(S) links, browsing item metadata, viewing/copying text, and deleting items. The stack uses an ASP.NET Core API and PostgreSQL with EF Core migrations, health endpoints, JSON request logs, browser cookie authentication, and owner-scoped item data.
+Vault is a private cross-device inbox. The current local slice supports signing in to the React web client with an email address or username, sending text and HTTP(S) links, browsing item metadata, viewing/copying text, and deleting items. The stack uses an ASP.NET Core API and PostgreSQL with EF Core migrations, health endpoints, JSON request logs, browser cookie authentication, and owner-scoped item data.
 
 ## First local setup
 
@@ -20,7 +20,7 @@ Start Vault:
 docker compose up --build --wait
 ```
 
-Open <https://localhost:8080> (or the configured `VAULT_WEB_PORT`). The bootstrap email defaults to `owner@vault.local`; its generated password is in `.env` as `VAULT_BOOTSTRAP_PASSWORD`. The UI is exposed only on the host loopback address. Nginx terminates HTTPS and proxies `/api/*` to the private API container. PostgreSQL and the API have no host-published ports. The database persists in `postgres_data`; Data Protection keys persist separately in `data_protection_keys` under the fixed `Vault` application name.
+Open <https://localhost:8080> (or the configured `VAULT_WEB_PORT`). The bootstrap email and username default to `owner@vault.local` and `owner`; the generated password is in `.env` as `VAULT_BOOTSTRAP_PASSWORD`. Sign in with either identifier. The UI is exposed only on the host loopback address. Nginx terminates HTTPS and proxies `/api/*` to the private API container. PostgreSQL and the API have no host-published ports. The database persists in `postgres_data`; Data Protection keys persist separately in `data_protection_keys` under the fixed `Vault` application name.
 
 The local Compose network gives Nginx a stable address, which is the only proxy IP trusted by the API. Nginx replaces forwarded client headers at the trust boundary. The test stack uses a separate network subnet and proxy address so it can run beside the ordinary development stack.
 

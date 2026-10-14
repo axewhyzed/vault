@@ -56,14 +56,14 @@ function safePathId() {
 function App() {
   const [view, setView] = useState<ViewState>('loading');
   const [session, setSession] = useState<Session | null>(null);
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [messageKind, setMessageKind] = useState<'error' | 'notice'>('error');
   const [retrySeconds, setRetrySeconds] = useState(0);
   const [serviceOnline, setServiceOnline] = useState<boolean | null>(null);
-  const emailRef = useRef<HTMLInputElement>(null);
+  const identifierRef = useRef<HTMLInputElement>(null);
   const inboxHeadingRef = useRef<HTMLHeadingElement>(null);
   const mountedRef = useRef(true);
   const generationRef = useRef(0);
@@ -166,7 +166,7 @@ function App() {
   }, []);
 
   useEffect(() => { if (retrySeconds <= 0) return undefined; const timer = window.setTimeout(() => setRetrySeconds((seconds) => Math.max(0, seconds - 1)), 1000); return () => window.clearTimeout(timer); }, [retrySeconds]);
-  useEffect(() => { if (view === 'signed-out') emailRef.current?.focus(); if (view === 'signed-in') inboxHeadingRef.current?.focus(); }, [view]);
+  useEffect(() => { if (view === 'signed-out') identifierRef.current?.focus(); if (view === 'signed-in') inboxHeadingRef.current?.focus(); }, [view]);
 
   async function handleApiFailure(response: Response) {
     if (response.status === 401) { signOutOnUnauthorized(); return 'Your session has expired. Sign in again to continue.'; }
@@ -213,8 +213,8 @@ function App() {
     event.preventDefault(); if (busy || retrySeconds > 0) return; setBusy(true); setMessage('');
     try {
       const token = await fetchCsrf();
-      const response = await fetch(`${API}/auth/login`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json', Accept: 'application/json', [token.headerName]: token.token }, body: JSON.stringify({ email: email.trim(), password }) });
-      if (response.status === 401) { publishError('That email and password did not match. Check them and try again.'); setPassword(''); return; }
+      const response = await fetch(`${API}/auth/login`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json', Accept: 'application/json', [token.headerName]: token.token }, body: JSON.stringify({ identifier: identifier.trim(), password }) });
+      if (response.status === 401) { publishError('That email or username and password did not match. Check them and try again.'); setPassword(''); return; }
       if (response.status === 403) { publishError('Vault could not verify this sign-in request. Refresh the security token and try again.'); return; }
       if (response.status === 429) { const delay = retryDelay(response); setRetrySeconds(delay); publishError(`Too many sign-in attempts. Try again in ${delay} seconds.`); return; }
       if (!response.ok) throw new Error('Vault could not sign you in. Try again.');
@@ -289,7 +289,7 @@ function App() {
       <header className="topbar"><a className="brand" href="/" aria-label="Vault home"><VaultMark /><span>vault</span></a><div className="topbar-right"><span className="topbar-note">PERSONAL RELAY</span>{view === 'signed-in' && <button className="text-button" type="button" onClick={handleLogout} disabled={busy}>{busy ? 'Signing out…' : 'Sign out'}</button>}</div></header>
       {view === 'loading' && <section className="loading-panel" aria-live="polite" aria-busy="true"><span className="loading-ring" aria-hidden="true" /><p>Restoring your private space…</p></section>}
       {view === 'signed-out' && <section className="auth-layout" aria-labelledby="welcome-title"><div className="intro-panel"><p className="eyebrow"><span className="eyebrow-line" /> YOUR DEVICES, IN SYNC</p><h1 id="welcome-title">A quieter way<br />to move things.</h1><p className="intro">A private bridge between your devices. Sign in to open your personal Vault.</p><div className={`service-status ${serviceOnline === false ? 'service-status--offline' : 'service-status--ready'}`} role="status"><span className="status-dot" /><span>{serviceOnline === null ? 'Checking Vault' : serviceOnline ? 'Vault is ready' : 'Vault is having trouble connecting'}</span></div></div>
-        <section className="auth-card" aria-labelledby="signin-title"><div className="auth-card-top"><span className="card-kicker">PRIVATE SPACE</span><span className="secure-label"><span aria-hidden="true">●</span> SECURE SIGN-IN</span></div><h2 id="signin-title">Welcome back</h2><p className="auth-description">Use your Vault account to continue.</p><form onSubmit={handleLogin} noValidate><div className="field-group"><label htmlFor="email">Email address</label><input ref={emailRef} id="email" name="email" type="email" autoComplete="username" inputMode="email" required value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy} /></div><div className="field-group"><label htmlFor="password">Password</label><input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} /></div><div className={`form-message ${message ? (messageKind === 'error' ? 'form-message--error' : 'form-message--notice') : ''}`} role={messageKind === 'error' ? 'alert' : 'status'} aria-live="polite">{message}</div><button className="primary-button" type="submit" disabled={busy || retrySeconds > 0 || !email.trim() || !password}><span>{busy ? 'Signing in…' : retrySeconds > 0 ? `Try again in ${retrySeconds}s` : 'Sign in'}</span><span aria-hidden="true">→</span></button></form><p className="card-footnote"><span aria-hidden="true">⌑</span> Your password is only sent over this secure connection.</p></section></section>}
+        <section className="auth-card" aria-labelledby="signin-title"><div className="auth-card-top"><span className="card-kicker">PRIVATE SPACE</span><span className="secure-label"><span aria-hidden="true">●</span> SECURE SIGN-IN</span></div><h2 id="signin-title">Welcome back</h2><p className="auth-description">Use your Vault account to continue.</p><form onSubmit={handleLogin} noValidate><div className="field-group"><label htmlFor="identifier">Email or username</label><input ref={identifierRef} id="identifier" name="identifier" type="text" autoComplete="username" inputMode="text" required value={identifier} onChange={(event) => setIdentifier(event.target.value)} disabled={busy} placeholder="Email address or username" /></div><div className="field-group"><label htmlFor="password">Password</label><input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} /></div><div className={`form-message ${message ? (messageKind === 'error' ? 'form-message--error' : 'form-message--notice') : ''}`} role={messageKind === 'error' ? 'alert' : 'status'} aria-live="polite">{message}</div><button className="primary-button" type="submit" disabled={busy || retrySeconds > 0 || !identifier.trim() || !password}><span>{busy ? 'Signing in…' : retrySeconds > 0 ? `Try again in ${retrySeconds}s` : 'Sign in'}</span><span aria-hidden="true">→</span></button></form><p className="card-footnote"><span aria-hidden="true">⌑</span> Your password is only sent over this secure connection.</p></section></section>}
       {view === 'signed-in' && session && <section className="inbox-layout" aria-labelledby="inbox-title">
         <div className="inbox-heading-row"><div><p className="eyebrow"><span className="eyebrow-line" /> YOUR PRIVATE SPACE</p><h1 ref={inboxHeadingRef} id="inbox-title" tabIndex={-1}>Your inbox</h1><p className="intro">Signed in as <strong>{session.email}</strong></p></div><div className="device-chip"><span className="device-indicator" /><span><b>This browser</b><small>Current session</small></span></div></div>
         <div className="quota-card" aria-label="Storage quota"><div className="quota-title"><strong>Vault storage</strong><span>{quota ? `${formatBytes(quota.activeBytes)} of ${formatBytes(quota.maxActiveBytes)}` : 'Loading usage…'}</span></div><div className="quota-track" role="progressbar" aria-label="Storage used" aria-valuemin={0} aria-valuemax={quota?.maxActiveBytes ?? 2_000_000_000} aria-valuenow={quota?.activeBytes ?? 0}><span style={{ width: `${bytePercent}%` }} /></div><small>{quota ? `${quota.activeItems.toLocaleString()} of ${quota.maxActiveItems.toLocaleString()} items` : ' '}</small></div>

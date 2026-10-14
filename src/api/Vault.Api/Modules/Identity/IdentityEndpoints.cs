@@ -29,7 +29,7 @@ internal static class IdentityEndpoints
         group.MapPost("/login", LoginAsync)
             .AllowAnonymous()
             .WithName("Login")
-            .WithSummary("Sign in with the single configured bootstrap account.")
+            .WithSummary("Sign in with an email address or username and password.")
             .WithDescription("Requires an allowed Origin header, the antiforgery cookie, and the X-CSRF-TOKEN request header. Success sets the Secure, HttpOnly, SameSite=Strict __Host-Vault.Auth cookie, valid for eight hours.");
 
         group.MapGet("/me", async (ClaimsPrincipal principal, VaultDbContext database, CancellationToken cancellationToken) =>
@@ -59,8 +59,9 @@ internal static class IdentityEndpoints
         CredentialAttemptLimiter limiter,
         CancellationToken cancellationToken)
     {
-        if (request is null || string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrEmpty(request.Password))
-            return IdentityErrors.Create(context, StatusCodes.Status400BadRequest, "invalid_request", "Email and password are required.");
+        var identifier = request?.GetIdentifier()?.Trim();
+        if (request is null || string.IsNullOrWhiteSpace(identifier) || string.IsNullOrEmpty(request.Password))
+            return IdentityErrors.Create(context, StatusCodes.Status400BadRequest, "invalid_request", "Email or username and password are required.");
 
         var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         if (!limiter.TryConsume(ip, out var retryAfterSeconds))
@@ -69,15 +70,19 @@ internal static class IdentityEndpoints
             return IdentityErrors.Create(context, StatusCodes.Status429TooManyRequests, "rate_limited", "Too many sign-in attempts. Try again later.");
         }
 
-        var normalized = request.Email.Trim().ToUpperInvariant();
-        var user = await database.Users.SingleOrDefaultAsync(x => x.NormalizedEmail == normalized, cancellationToken);
+        var normalized = identifier.ToUpperInvariant();
+        var matches = await database.Users
+            .Where(x => x.NormalizedEmail == normalized || x.NormalizedUsername == normalized)
+            .Take(2)
+            .ToListAsync(cancellationToken);
+        var user = matches.Count == 1 ? matches[0] : null;
         var hashOwner = user ?? limiter.DummyUser;
         var verification = hasher.VerifyHashedPassword(hashOwner, hashOwner.PasswordHash, request.Password);
         if (user is null || user.Status != "active" || verification == PasswordVerificationResult.Failed)
         {
             database.AuditEvents.Add(new VaultAuditEvent { EventType = "login_failed", ActorUserId = user?.Id, CorrelationId = context.TraceIdentifier });
             await database.SaveChangesAsync(cancellationToken);
-            return IdentityErrors.Create(context, StatusCodes.Status401Unauthorized, "invalid_credentials", "Email or password is incorrect.");
+            return IdentityErrors.Create(context, StatusCodes.Status401Unauthorized, "invalid_credentials", "Email or username and password did not match.");
         }
 
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
@@ -143,7 +148,12 @@ internal static class IdentityEndpoints
     internal static Guid GetGuid(ClaimsPrincipal principal, string claim) =>
         Guid.TryParse(principal.FindFirstValue(claim), out var value) ? value : Guid.Empty;
 
-    internal sealed record LoginRequest(string Email, string Password);
+    internal sealed record LoginRequest(string Password, string? Identifier = null, string? Email = null, string? Username = null)
+    {
+        public string? GetIdentifier() => !string.IsNullOrWhiteSpace(Identifier)
+            ? Identifier
+            : !string.IsNullOrWhiteSpace(Username) ? Username : Email;
+    }
     internal sealed record AccountResponse(Guid UserId, string Email, Guid DeviceId);
     internal sealed record CsrfResponse(string Token, string HeaderName);
 }

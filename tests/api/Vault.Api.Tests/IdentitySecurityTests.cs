@@ -20,6 +20,7 @@ public sealed class IdentitySecurityTests
     private const string Origin = "https://localhost";
     private const string Password1 = "FirstTestPassword_2026!";
     private const string Password2 = "SecondTestPassword_2026!";
+    private const string UpdatedPassword = "UpdatedBootstrapPassword_2026!";
 
     [Fact]
     public async Task Health_and_openapi_are_public_while_authentication_routes_are_protected()
@@ -111,7 +112,7 @@ public sealed class IdentitySecurityTests
 
         using var client2 = host.CreateClient();
         var csrf2 = await GetCsrfAsync(client2);
-        var account2 = await LoginAsync(host, client2, TestApiHost.Email2, Password2, csrf2.Token);
+        var account2 = await LoginAsync(host, client2, TestApiHost.Username2, Password2, csrf2.Token);
         Assert.NotEqual(account1.UserId, account2.UserId);
         Assert.NotEqual(account1.DeviceId, account2.DeviceId);
         using var me1AfterSecondLogin = await client1.GetAsync("/api/v1/auth/me");
@@ -151,6 +152,67 @@ public sealed class IdentitySecurityTests
         Assert.Equal(originalHash, await host.GetPasswordHashAsync(TestApiHost.Email1));
         await Assert.ThrowsAsync<InvalidOperationException>(() => host.RunSeederAsync(TestApiHost.Email2, Password2));
         Assert.Equal(originalHash, await host.GetPasswordHashAsync(TestApiHost.Email1));
+    }
+
+    [Fact]
+    public async Task Login_accepts_legacy_email_payload_and_identifier_payload_with_username()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var emailClient = host.CreateClient();
+        var emailCsrf = await GetCsrfAsync(emailClient);
+
+        using var legacyEmailResponse = await SendLegacyEmailLoginAsync(emailClient, TestApiHost.Email1, Password1, emailCsrf.Token);
+        Assert.Equal(HttpStatusCode.OK, legacyEmailResponse.StatusCode);
+        Assert.Equal(TestApiHost.Email1, (await legacyEmailResponse.Content.ReadFromJsonAsync<AccountResponse>())!.Email);
+
+        using var usernameClient = host.CreateClient();
+        var usernameCsrf = await GetCsrfAsync(usernameClient);
+        using var usernameResponse = await SendLoginAsync(usernameClient, " OWNER-B ", Password2, usernameCsrf.Token, "192.0.2.21");
+        Assert.Equal(HttpStatusCode.OK, usernameResponse.StatusCode);
+        Assert.Equal(TestApiHost.Email2, (await usernameResponse.Content.ReadFromJsonAsync<AccountResponse>())!.Email);
+    }
+
+    [Fact]
+    public async Task Bootstrap_username_backfill_preserves_password_and_username_login_works()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        var originalHash = await host.GetPasswordHashAsync(TestApiHost.Email1);
+
+        await host.RunSeederAsync(TestApiHost.Email1, "IgnoredPasswordForIdempotence!", TestApiHost.Username1);
+
+        Assert.Equal(originalHash, await host.GetPasswordHashAsync(TestApiHost.Email1));
+        Assert.Equal(TestApiHost.Username1, await host.GetUsernameAsync(TestApiHost.Email1));
+
+        using var client = host.CreateClient();
+        var csrf = await GetCsrfAsync(client);
+        using var login = await SendLoginAsync(client, TestApiHost.Username1, Password1, csrf.Token, "192.0.2.22");
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+    }
+
+    [Fact]
+    public async Task Explicit_bootstrap_credential_update_changes_password_and_revokes_sessions()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var existingClient = host.CreateClient();
+        var firstCsrf = await GetCsrfAsync(existingClient);
+        _ = await LoginAsync(host, existingClient, TestApiHost.Email1, Password1, firstCsrf.Token);
+
+        await host.UpdateBootstrapCredentialsAsync(TestApiHost.Email1, TestApiHost.Username1, UpdatedPassword);
+
+        using var revokedSession = await existingClient.GetAsync("/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, revokedSession.StatusCode);
+
+        using var oldPasswordClient = host.CreateClient();
+        var oldPasswordCsrf = await GetCsrfAsync(oldPasswordClient);
+        using var oldPassword = await SendLoginAsync(oldPasswordClient, TestApiHost.Email1, Password1, oldPasswordCsrf.Token, "192.0.2.23");
+        Assert.Equal(HttpStatusCode.Unauthorized, oldPassword.StatusCode);
+
+        using var newPasswordClient = host.CreateClient();
+        var newPasswordCsrf = await GetCsrfAsync(newPasswordClient);
+        using var newPassword = await SendLoginAsync(newPasswordClient, TestApiHost.Username1, UpdatedPassword, newPasswordCsrf.Token, "192.0.2.24");
+        Assert.Equal(HttpStatusCode.OK, newPassword.StatusCode);
+        Assert.Contains("bootstrap_credentials_updated", await host.GetAuditEventTypesAsync());
+        Assert.DoesNotContain(UpdatedPassword, await host.GetAuditTextAsync(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -202,6 +264,12 @@ public sealed class IdentitySecurityTests
         return request;
     }
 
+    private static async Task<HttpResponseMessage> SendLegacyEmailLoginAsync(HttpClient client, string email, string password, string token)
+    {
+        var request = NewLoginRequest(email, password, token, Origin);
+        return await client.SendAsync(request);
+    }
+
     private static async Task<CsrfResponse> GetCsrfAsync(HttpClient client)
     {
         using var response = await client.GetAsync("/api/v1/auth/csrf");
@@ -212,9 +280,9 @@ public sealed class IdentitySecurityTests
         return csrf;
     }
 
-    private static async Task<AccountResponse> LoginAsync(TestApiHost host, HttpClient client, string email, string password, string token)
+    private static async Task<AccountResponse> LoginAsync(TestApiHost host, HttpClient client, string identifier, string password, string token)
     {
-        using var response = await SendLoginAsync(client, email, password, token, "192.0.2.20");
+        using var response = await SendLoginAsync(client, identifier, password, token, "192.0.2.20");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         host.RecordAuthCookie(client, response);
         var account = await response.Content.ReadFromJsonAsync<AccountResponse>();
@@ -222,9 +290,14 @@ public sealed class IdentitySecurityTests
         return account;
     }
 
-    private static async Task<HttpResponseMessage> SendLoginAsync(HttpClient client, string email, string password, string token, string ip)
+    private static async Task<HttpResponseMessage> SendLoginAsync(HttpClient client, string identifier, string password, string token, string ip)
     {
-        var request = NewLoginRequest(email, password, token, Origin);
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/login")
+        {
+            Content = JsonContent.Create(new { identifier, password })
+        };
+        request.Headers.Add("Origin", Origin);
+        request.Headers.Add("X-CSRF-TOKEN", token);
         request.Headers.Add("X-Forwarded-For", ip);
         return await client.SendAsync(request);
     }
@@ -236,6 +309,8 @@ public sealed class IdentitySecurityTests
     {
         public const string Email1 = "owner-a@example.test";
         public const string Email2 = "owner-b@example.test";
+        public const string Username1 = "mihir0234";
+        public const string Username2 = "owner-b";
         private readonly SqliteConnection _connection;
         private readonly WebApplicationFactory<Program> _factory;
 
@@ -274,7 +349,13 @@ public sealed class IdentitySecurityTests
             var hasher = new PasswordHasher<VaultUser>(Options.Create(new PasswordHasherOptions { IterationCount = 10 }));
             var user1 = new VaultUser { Email = Email1, NormalizedEmail = Email1.ToUpperInvariant(), IsBootstrap = true };
             user1.PasswordHash = hasher.HashPassword(user1, Password1);
-            var user2 = new VaultUser { Email = Email2, NormalizedEmail = Email2.ToUpperInvariant() };
+            var user2 = new VaultUser
+            {
+                Email = Email2,
+                NormalizedEmail = Email2.ToUpperInvariant(),
+                Username = Username2,
+                NormalizedUsername = Username2.ToUpperInvariant()
+            };
             user2.PasswordHash = hasher.HashPassword(user2, Password2);
             database.Users.AddRange(user1, user2);
             await database.SaveChangesAsync();
@@ -335,7 +416,7 @@ public sealed class IdentitySecurityTests
                 .Select(value => value.PasswordHash).SingleAsync();
         }
 
-        public async Task RunSeederAsync(string email, string password)
+        public async Task RunSeederAsync(string email, string password, string? username = null)
         {
             using var scope = _factory.Services.CreateScope();
             var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
@@ -343,9 +424,33 @@ public sealed class IdentitySecurityTests
             var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Bootstrap:Email"] = email,
-                ["Bootstrap:Password"] = password
+                ["Bootstrap:Password"] = password,
+                ["Bootstrap:Username"] = username
             }).Build();
             await new BootstrapAccountSeeder(database, hasher, configuration).SeedAsync(CancellationToken.None);
+        }
+
+        public async Task<string?> GetUsernameAsync(string email)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            return await database.Users.Where(value => value.NormalizedEmail == email.ToUpperInvariant())
+                .Select(value => value.Username).SingleAsync();
+        }
+
+        public async Task UpdateBootstrapCredentialsAsync(string email, string username, string password)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            var hasher = new PasswordHasher<VaultUser>(Options.Create(new PasswordHasherOptions { IterationCount = 10 }));
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Bootstrap:Email"] = email,
+                ["Bootstrap:Username"] = username,
+                ["Bootstrap:Password"] = password
+            }).Build();
+            await new BootstrapAccountSeeder(database, hasher, configuration)
+                .UpdateBootstrapCredentialsAsync(CancellationToken.None);
         }
 
         public void Dispose()

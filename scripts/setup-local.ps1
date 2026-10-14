@@ -38,6 +38,7 @@ if (-not (Test-Path -LiteralPath $envPath)) {
         'POSTGRES_USER=vault'
         "POSTGRES_PASSWORD=$databasePassword"
         'VAULT_BOOTSTRAP_EMAIL=owner@vault.local'
+        'VAULT_BOOTSTRAP_USERNAME=owner'
         "VAULT_BOOTSTRAP_PASSWORD=$bootstrapPassword"
         'VAULT_WEB_PORT=8080'
         'VAULT_BIND_ADDRESS=127.0.0.1'

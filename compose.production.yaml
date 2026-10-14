@@ -6,6 +6,7 @@ x-api-environment: &api-environment
   Database__ApplyMigrations: "${DATABASE_APPLY_MIGRATIONS:-true}"
   Database__MigrationOnly: "false"
   Bootstrap__Email: ${VAULT_BOOTSTRAP_EMAIL:?Set the Vault bootstrap account email}
+  Bootstrap__Username: ${VAULT_BOOTSTRAP_USERNAME:-mihir0234}
   Bootstrap__Password: ${VAULT_BOOTSTRAP_PASSWORD:?Set the Vault bootstrap account password}
   TrustedProxyIp: ${VAULT_WEB_IP:-172.31.20.10}
   Security__AllowedOrigins__0: https://${VAULT_DOMAIN:?Set the public domain for Vault}
