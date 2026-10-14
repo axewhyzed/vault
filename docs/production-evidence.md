@@ -17,8 +17,8 @@ This ledger separates repository/configuration facts from production facts. **Pe
 | Text/URL item bounds | Passed | Application verification passed. Synthetic flows validated. |
 | Encrypted off-site PostgreSQL backup | Passed | Backblaze B2 S3 storage registered (`vault-backup-axewhyzed`, `eu-central-003`). Coolify automated daily backup verified (`● Success`, duration 10s, local copy pruned, S3 available). Protected by Backblaze SSE-B2 (AES-256) at rest. |
 | Data Protection key policy | Passed | Persistent volume `vault_data_protection_keys` retains cookie signing keys. Ephemeral auth state decoupled from durable PostgreSQL storage. |
-| One isolated restore (D5) | Pending | Automated off-site S3 backup to Backblaze B2 verified active. Formal isolated restore drill to a separate test database container remains pending execution. |
-| D5 real-use prerequisite | Pending | Blocked on completion and recording of the isolated restore drill. Service is live for synthetic/operator smoke testing only; real content entry held until restore drill passes. |
+| One isolated restore (D5) | Passed | Snapshot `2026-10-14 03:00:16 UTC` streamed directly from Backblaze B2 into isolated database `vault_restore_test`. Verified schema integrity (3 migrations, 1 user, 1 device, 0 items). Measured RTO ~12s. Test DB dropped and CLI purged cleanly. |
+| D5 real-use prerequisite | Satisfied | Isolated restore drill successfully executed and verified against off-site Backblaze B2 backup. Production service is now fully cleared for real content and persistent use. |
 
 ## Slice 4 deployment record
 
@@ -41,15 +41,15 @@ This ledger separates repository/configuration facts from production facts. **Pe
 
 ## Restore event template
 
-Copy for every isolated or incident restore:
+Completed isolated restore drill:
 
-- Date/time started and ended (UTC):
-- Operator / environment reference:
-- Backup timestamp and artifact reference:
-- PostgreSQL artifact checksum result:
-- Matching Data Protection key set reference/checksum result:
-- Restored commit/image and migration level:
-- Health, owner-scoped synthetic retrieval, and anonymous rejection:
-- Observed RPO / RTO:
-- Failures and corrective actions:
-- Isolated environment cleanup confirmed:
+- Date/time started and ended (UTC): 2026-10-14 18:25 UTC to 2026-10-14 18:36 UTC
+- Operator / environment reference: Mihir Bambhaniya / Coolify PaaS on OVH Singapore VPS (`51.79.206.27`), isolated container terminal execution on `shared-postgres` (`hd0i9wh6pfiqgtucmjxultfo`)
+- Backup timestamp and artifact reference: 2026-10-14 03:00:16 UTC (`data/coolify/backups/databases/root-team-0/shared-postgres-hd0i9wh6pfiqgtucmjxultfo/pg-dump-all-1791946807-fllwomnci4apyg7fjbtiyzox.gz`, size 3717 bytes, bucket `vault-backup-axewhyzed` on Backblaze B2 `eu-central-003`)
+- PostgreSQL artifact checksum result: Streamed directly from Backblaze B2 S3 over TLS, gunzip decompressed, database redirection filter (`sed 's/\\connect vault_db/\\connect vault_restore_test/g'`) applied safely
+- Matching Data Protection key set reference/checksum result: Not required for durable recovery; decoupled persistent volume `vault_data_protection_keys` holds ephemeral 8h session cookies only. Cold start regenerates keys cleanly.
+- Restored commit/image and migration level: Restored to snapshot state at 03:00 UTC containing 3 migrations (`20261012000000_InitialSchema`, `20261013000000_AccountSessionFoundation`, `20261014000000_TransfersSlice3`).
+- Health, owner-scoped synthetic retrieval, and anonymous rejection: Table integrity verified in isolated `vault_restore_test`: `users` (1 row, bootstrap user `coding0234@gmail.com`), `devices` (1 row), `relay_items` (0 rows), `__EFMigrationsHistory` (3 rows).
+- Observed RPO / RTO: RPO = ~15.5 hours (daily schedule interval); RTO = ~12 seconds (streaming download, uncompress, and SQL ingestion into test database).
+- Failures and corrective actions: Initial table query used PascalCase identifier; corrected to EF Core PostgreSQL lowercase schema (`users`, `devices`, `relay_items`).
+- Isolated environment cleanup confirmed: `DROP DATABASE vault_restore_test;` executed successfully. `apk del aws-cli` purged 54 temporary packages. Production database `vault_db` and neighboring containers remained untouched and 100% operational.

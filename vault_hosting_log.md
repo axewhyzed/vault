@@ -25,7 +25,7 @@
 - [x] **Step 9:** Username sign-in, zero-touch credential synchronization, and relaxed password limits (Applied & verified).
 - [x] **Step 10:** Production reverse-proxy upstream pinning (`vault-api-backend`), proxy trust, and CSRF 500 resolution.
 - [x] **Step 11:** Smoke testing & live authentication verification (CSRF tokens 100% OK, user logged in on production UI).
-- [ ] **Step 12:** D5 isolated restore drill verification & production evidence ledger sign-off.
+- [x] **Step 12:** D5 isolated restore drill verification & production evidence ledger sign-off (Completed).
 
 ---
 
@@ -155,3 +155,32 @@
 * **Live Origin:** `https://vault.axewhyzedlabs.co.in`
 * **CSRF Endpoint Health:** Tested consecutive requests to `/api/v1/auth/csrf` -> **100% returned `200 OK`** with valid `__Host-Vault.Csrf` cookies and tokens. Zero flapping.
 * **Authentication Verification:** User signed in successfully via production web interface using username (`mihir0234`) and updated password. Session restored cleanly.
+
+---
+
+### Step 12: D5 Isolated Restore Drill Verification & Ledger Sign-Off (Completed)
+* **Objective:** Prove recoverable state from off-site Backblaze B2 backup without touching live production database (`vault_db`) or impacting neighboring apps.
+* **Execution Environment:** `shared-postgres` container (`hd0i9wh6pfiqgtucmjxultfo`) on OVH VPS.
+* **Test Database:** `vault_restore_test` dynamically provisioned.
+* **Source Snapshot Artifact:** `data/coolify/backups/databases/root-team-0/shared-postgres-hd0i9wh6pfiqgtucmjxultfo/pg-dump-all-1791946807-fllwomnci4apyg7fjbtiyzox.gz`
+  * Backup Timestamp: `2026-10-14 03:00:16 UTC`
+  * Storage: Backblaze B2 bucket `vault-backup-axewhyzed` (`s3.eu-central-003.backblazeb2.com`)
+  * Size: 3,717 bytes (SSE-B2 AES-256 encrypted at rest)
+* **Streaming Restore Pipeline:**
+  ```bash
+  aws --endpoint-url https://s3.eu-central-003.backblazeb2.com s3 cp s3://vault-backup-axewhyzed/.../pg-dump-all-...gz - \
+    | gunzip -c \
+    | sed 's/\\connect vault_db/\\connect vault_restore_test/g' \
+    | psql -U postgres -d vault_restore_test
+  ```
+* **Validation Query Results:**
+  * `__EFMigrationsHistory`: 3 migrations (`20261012000000_InitialSchema`, `20261013000000_AccountSessionFoundation`, `20261014000000_TransfersSlice3`).
+  * `users`: 1 record (`coding0234@gmail.com`, created `2026-10-13 18:35:03 UTC`).
+  * `devices`: 1 record.
+  * `relay_items`: 0 records.
+* **Performance:** Observed RTO ~12 seconds. RPO ~15.5 hours (governed by daily automated schedule).
+* **Teardown & Cleanup:**
+  * `DROP DATABASE vault_restore_test;` executed successfully.
+  * `apk del aws-cli` purged 54 packages; container filesystem returned to 100% clean baseline state.
+* **Gate Status:** Gate D5 marked **Passed**. Real-use prerequisite satisfied.
+
