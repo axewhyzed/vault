@@ -1,96 +1,46 @@
-# Slice 4 deployment runbook
+# Production deployment runbook
 
-This runbook describes the first thin production deployment of the current Vault web/API slice: authenticated text and HTTP(S) URL items only. The chosen public origin is `https://vault.axewhyzedlabs.co.in`.
+This is the owner-run deployment procedure for Vault on the existing OVH Singapore VPS with Coolify/Traefik and private PostgreSQL 18. Repository configuration is prepared; no VPS, DNS, firewall, Coolify resource, database, or backup provider was changed. Deployment, TLS/routing checks, an off-site backup, isolated production restore, and internet-device checks remain pending in [production evidence](production-evidence.md).
 
-The target is the existing OVH Singapore VPS with Coolify v4 and Traefik, alongside existing applications, and its private PostgreSQL 18 container on the `coolify` Docker network. Keep the existing apps and shared proxy in service. Deploy Vault as its own Coolify resources and use a dedicated PostgreSQL database and login role. PostgreSQL and the API must have no public or host-published ports. Traefik exposes only the web frontend over HTTPS.
+## Before exposing Vault
 
-This is a procedure, not evidence that Vault is live. Slice 4 does not include binary files, Android clients, the MVP exit gate, or starting the six-week product gate. Do not announce those outcomes until their acceptance checks are completed and recorded.
+1. Confirm DNS, the public hostname, host firewall, and the exact Traefik container IP without changing neighboring applications.
+2. Create a dedicated Vault database and database role on the existing private PostgreSQL service. Do not publish PostgreSQL or the API on a host port.
+3. Configure encrypted off-site backups for the database, `vault_file_data`, and Data Protection keys. Complete one isolated restore before real use. The local synthetic backup test is not a production restore.
+4. Prepare `.env.production.example` in the host's secret manager. Replace every placeholder, use the deployed immutable Git SHA and image references, and keep database/bootstrap/B2 secrets out of Git and shell history.
+5. Confirm the file volume has enough capacity for the 100,000,000-byte item cap and the API can observe actual filesystem free space. Upload initiation fails closed unless a requested file fits while retaining 20% of the filesystem's total capacity.
 
-## Before exposing the hostname
+## Compose services and limits
 
-1. Review the pending items in [production evidence](production-evidence.md). D5 is a hard gate: sign-in rate limiting, bounded item creation, encrypted off-site backup, and one isolated restore must be ready before the internet-facing service is used for real content. A URL or text item only; there are no file bytes in this slice.
-2. Confirm `vault.axewhyzedlabs.co.in` resolves to the existing OVH VPS address in the authoritative DNS provider. Use DNS-only routing as for the other Coolify hostnames unless the current edge configuration has been separately reviewed. Do not alter the DNS records for existing applications.
-3. Container images (`ghcr.io/axewhyzed/vault-api`, `ghcr.io/axewhyzed/vault-web`, and `ghcr.io/axewhyzed/vault-backup`) are built, tested, and published to GitHub Container Registry (GHCR) via the `.github/workflows/deploy.yml` workflow on push to `main`. In Coolify, deploy the reviewed immutable commit as the `compose.production.yaml` application. Coolify pulls the pre-built images from `ghcr.io` (using the host's existing GHCR registry credentials), eliminating CPU and RAM build strain on the VPS. The API listens on container port `8080`; the web Nginx container listens on port `80` and proxies `/api/*` and `/health/*` to the API over the private `vault_backend` network. In Coolify's dashboard, configure the public domain on the `web` service (port 80), allowing Coolify's native proxy engine to manage Traefik routing, TLS certificates, and HTTP-to-HTTPS redirects automatically without hardcoded Compose labels. Do not publish API port 8080 or database port 5432 on the VPS.
-4. The production Compose topology attaches the API to the existing `coolify` network for private PostgreSQL access, and attaches API and web to an internal-only `vault_backend` network for application traffic. Verify the web container resolves the API upstream `vault-api-backend` and `/api` requests reach the API before public routing. No service has a published host port. Do not create a new public-facing database route or change the network/port mappings of other resources.
-5. Confirm the OVH/cloud firewall and host firewall still allow only the required inbound SSH, HTTP, and HTTPS ports (currently 22/tcp, 80/tcp, and 443/tcp). Check that 5432, 8080, Coolify's management ports, and any other application ports remain closed from the internet. The setup log records an earlier scan; repeat this check for this deployment and save the result. Never weaken global Docker/Traefik or firewall rules to get Vault working.
-6. Verify a dedicated database and role exist before setting the app connection string. Example only; substitute unique Vault-specific names and generate a new password in the secret manager:
+`compose.production.yaml` exposes only the web container to Traefik. The API has no published port, and PostgreSQL remains on the private Coolify network. The API mounts:
 
-   ```sql
-   CREATE ROLE <vault_login_role> WITH LOGIN PASSWORD '<set-out-of-band>';
-   CREATE DATABASE <vault_database> OWNER <vault_login_role>;
-   REVOKE CONNECT, TEMPORARY ON DATABASE <vault_database> FROM PUBLIC;
-   GRANT CONNECT ON DATABASE <vault_database> TO <vault_login_role>;
-   ```
+- `vault_file_data` at `/var/lib/vault/files` for staging and opaque promoted objects;
+- `vault_maintenance_lock` at `/run/vault-maintenance` for cross-container backup/sweep coordination;
+- `vault_data_protection_keys` for cookie/CSRF keys.
 
-   Run through an authorized PostgreSQL administration path on the private Docker network. Never put the shared PostgreSQL administrator credential in the Vault resource. Keep the role/database dedicated to Vault and never grant Vault access to other applications' databases.
-7. Confirm the exact Traefik source IP as observed by the web container on the `coolify` network, then set `VAULT_TRAEFIK_TRUSTED_IP` to that single address for Nginx real-IP processing. The web-to-API hop uses the configured private address `VAULT_WEB_IP` (default `172.31.20.10`); `TrustedProxyIp` in the API must match it. Choose `VAULT_BACKEND_SUBNET`, `VAULT_WEB_IP`, and `VAULT_API_IP` after inspecting host Docker networks; the defaults are examples and must be changed if the subnet collides. The API trusts at most one forwarded hop and ignores forwarded headers from unknown peers. Do not guess either address or trust a whole subnet. If the observed proxy address changes, update the setting and re-verify rate-limit client IP attribution before exposure.
+Keep the file path fixed at `/var/lib/vault/files`; Compose mounts the named volume there. API upload, completion, and delete operations hold a shared maintenance lock. Backup takes the matching exclusive lock from before `pg_dump` through the Restic file-volume scan, and the sweep command also takes it exclusively. This keeps API file mutations from changing the volume between database and file capture.
 
-## Required production settings
+The migration profile can be run as a one-shot before starting or updating the API:
 
-Set the following in the Coolify API resource's environment/secret manager. Values below are names or placeholders, not credentials. Do not commit production environment files or paste secrets into tickets/logs.
+```bash
+docker compose -f compose.production.yaml --profile migrate run --rm api-migrate
+```
 
-| Setting | Production value |
-|---|---|
-| `VAULT_API_IMAGE` | `ghcr.io/axewhyzed/vault-api:latest` (or explicit immutable sha tag) |
-| `VAULT_WEB_IMAGE` | `ghcr.io/axewhyzed/vault-web:latest` (or explicit immutable sha tag) |
-| `ASPNETCORE_ENVIRONMENT` | `Production` |
-| `ASPNETCORE_HTTP_PORTS` | `8080` |
-| `VAULT_DB_HOST` | `<private-postgres-container-hostname>` |
-| `VAULT_DB_PORT` | `5432` |
-| `VAULT_DB_NAME` | `<dedicated-vault-database>` |
-| `VAULT_DB_USER` | `<dedicated-vault-role>` |
-| `VAULT_DB_PASSWORD` | `<secret>` |
-| `DATABASE_APPLY_MIGRATIONS` | `true` for the current Coolify deployment, or run the one-off migration profile before startup |
-| `Database__MigrationOnly` | `false` on the API service; the migration profile sets it to `true` |
-| `VAULT_BOOTSTRAP_EMAIL` | `<owner-login-email>` |
-| `VAULT_BOOTSTRAP_USERNAME` | `mihir0234` or another unique 3-32 character username |
-| `VAULT_BOOTSTRAP_PASSWORD` | `<unique-high-entropy-bootstrap-password>` |
-| `Security__AllowedOrigins__0` | `https://vault.axewhyzedlabs.co.in` |
-| `TrustedProxyIp` | The same address configured in `VAULT_WEB_IP` |
-| `VAULT_TRAEFIK_TRUSTED_IP` | `<verified-single-coolify-proxy-ip>` |
-| VAULT_BACKEND_SUBNET | <unused-private-cidr> |
-| VAULT_WEB_IP | <unused-ip-in-backend-subnet> |
-| VAULT_API_IP | <different-unused-ip-in-backend-subnet> |
-| `DataProtection__ApplicationName` | `Vault` |
-| `DataProtection__KeysPath` | `/home/app/.aspnet/DataProtection-Keys` |
+Nginx allows the upload route up to 101 MiB at the proxy layer, disables request buffering, and uses long upload/download timeouts. The API streams raw `application/octet-stream` into staging, enforces the exact 100,000,000-byte cap, computes SHA-256, flushes staging, and promotes by same-volume no-overwrite rename. Zero-byte files are accepted. File content type is untrusted; a missing or invalid value becomes `application/octet-stream`, and downloads are attachments with `nosniff` and `no-store` headers.
 
-Mount the dedicated `vault_data_protection_keys` persistent volume at `/home/app/.aspnet/DataProtection-Keys` in the API container, writable by its non-root runtime user. Preserve it across deploys and include it in the encrypted backup set so existing browser cookies remain decryptable after restore. It must not be shared with other apps. Do not publish the volume or put keys in the image. The Compose `dpkeys-init` one-shot initializes ownership of both this key volume and the currently empty `vault_file_data` volume for UID 1654 before API or migration startup.
+The API reserves 20% of the actual storage filesystem's total capacity. It rejects initiation if free space cannot cover the requested upload and reserve, and fails closed if the volume cannot be measured. Active quotas remain 2,000,000,000 bytes and 10,000 items per owner. They are checked at initiation and rechecked under the owner lock at completion. The current plan does not reserve quota formally for concurrent sessions.
 
-The frontend is same-origin; it needs no database credentials. Coolify routes the public domain `https://vault.axewhyzedlabs.co.in` directly to the `web` container's internal port `80`. The current production Nginx upstream is `vault-api-backend` on the internal network; do not configure a public API URL.
+There is no background expiry worker. Expired reads are blocked immediately. An interrupted HTTP stream resets the session for retry with the same key. If the API process stops mid-stream, the manual reconciler checks receiving sessions older than two hours: a complete staged file with the expected size/hash is recoverable as staged, while partial bytes can be removed and the session made retryable. The command is report-only by default. Inspect its output first, then use the explicit apply switch during an owner-managed maintenance window:
 
-## Update the bootstrap username or password
+```bash
+docker compose -f compose.production.yaml exec api dotnet Vault.Api.dll --sweep-files
+docker compose -f compose.production.yaml exec api dotnet Vault.Api.dll --sweep-files --apply
+```
 
-The sign-in field accepts either the account email or its username. A normal bootstrap seed can create a username or backfill one when the existing bootstrap account has none; it never changes an existing password or silently replaces an existing username.
+Apply persists expired state and clears expired text, retries removal for expired/deleted file items, marks missing active file objects unavailable, recovers or resets stale staging sessions, and removes aged staging files. Unreferenced final objects are removed only after a 24-hour grace. Review promoted-but-uncommitted and younger orphan object keys; those remain for manual operator review. See [backup and recovery](recovery.md).
 
-To set the username to `mihir0234` and change the password on the live VPS:
+## Rollout and verification
 
-1. In the Vault resource's Coolify environment/secrets, set `VAULT_BOOTSTRAP_USERNAME=mihir0234` and replace `VAULT_BOOTSTRAP_PASSWORD` with a new unique password of at least 3 characters. Keep `VAULT_BOOTSTRAP_EMAIL` unchanged so the command targets the current bootstrap account. Do not put the password in a command, this repository, or the evidence log.
-2. Deploy the new immutable Vault commit and ensure its EF migration has completed. The current deployment may use its configured automatic migrations; otherwise run the one-off `api-migrate` service with the `migrate` profile. The migration adds nullable username columns and the normal seed fills a missing username without resetting the current password.
-3. Open a terminal for the running Vault API container in Coolify and run:
+Deploy immutable API and web images through the existing Coolify setup, run the migration profile, then inspect service health and logs. Verify TLS, routing, private-only API/database access, sign-in, text/URL flows, and a synthetic file upload followed by attachment download. Confirm the object is present in the file volume and in the next encrypted backup. Do not use real user files for a backup drill; create synthetic fixtures.
 
-   ```sh
-   dotnet /app/Vault.Api.dll --update-bootstrap-credentials
-   ```
-
-   The command reads the email, username, and new password from the container's Coolify environment. It updates the password hash, sets the username, and revokes active sessions. The password is not included in the terminal command.
-4. Sign in at `https://vault.axewhyzedlabs.co.in` using `mihir0234` and the new password. Existing sessions will need to sign in again.
-
-Usernames are case-insensitive and must contain 3-32 ASCII letters, digits, periods, underscores, or hyphens. If the command fails, check that the latest migration is applied, the bootstrap email matches the existing account, and the username is not already assigned.
-
-## Deploy and smoke-check
-
-1. Confirm the selected commit has passed the GitHub Actions CI workflow (`build-publish`) and pre-built images are published to GHCR. Deploy the API and web services from those exact immutable images; record the commit SHA and resulting image digests/tags. Do not use an unverified manual tag as the deployment record.
-2. Take a fresh encrypted off-site PostgreSQL backup before the first migration. For later schema changes, use a compatible/expand migration and take a pre-change backup. Run the one-off `api-migrate` service with the `migrate` profile and wait for successful completion before deploying/routing the API. The production API service remains configured with migrations disabled; do not start public traffic until migration and bootstrap checks pass.
-3. Wait for the API `/health/ready` check and web `/healthz` check to pass. Through the HTTPS hostname, confirm the TLS certificate is valid, HTTP redirects to HTTPS, and `/health/ready` returns a healthy response without exposing internal details.
-4. From a trusted test browser, verify sign-in, CSRF-protected text create/list/detail/copy/delete, and URL create/list/open/delete using synthetic content only. Confirm an anonymous item request is rejected. Confirm item responses are not cacheable. Do not submit personal or sensitive content during smoke testing.
-5. Verify sign-in attempts are attributed to the actual client IP after the Traefik forwarding boundary and the configured rate limit operates as expected. Do not infer this solely from a forwarded header supplied by the client.
-6. From an external network, check that 5432, 8080, Coolify management ports, and other non-web ports are closed; only the intended public web entry points should answer. Check existing application health and host capacity after deployment.
-7. Record every result, including failures, in [production evidence](production-evidence.md). Only after D5's backup and isolated restore evidence is complete may the owner mark the first real-use gate satisfied. Starting a six-week measurement period requires separate explicit evidence of the relevant stable-production use; a thin deployment alone does not start it.
-
-## Operational boundaries
-
-- Current deployed scope: text and HTTP(S) URL items. The API has per-owner byte/count checks and seven-day maximum retention; current UI/API evidence must be recorded before calling production checks complete.
-- The Compose file declares a `vault_file_data` volume, but current code does not accept or store binary file content. Do not treat the unused volume as file-transfer or file-backup evidence, and do not advertise file transfer based on these instructions.
-- Keep the API and PostgreSQL internal to the private Docker network. Traefik routes to the web frontend only; do not route `/api` directly at the API service.
-- Do not change shared proxy, database, firewall, or other Coolify resources as part of routine Vault deployments unless an independently reviewed change requires it.
-- Logs are structured JSON but still require review for data minimization and retention. Never place passwords, cookies, authorization headers, or item content in operational notes.
+Only the owner can complete the live VPS, DNS/TLS, off-site backup, isolated restore, and phone/PC internet checks. Record those in `docs/production-evidence.md`; local code and passing tests do not complete the deployment gate or start the six-week product gate.

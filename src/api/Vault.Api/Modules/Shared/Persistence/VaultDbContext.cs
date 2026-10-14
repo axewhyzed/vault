@@ -11,6 +11,7 @@ public sealed class VaultDbContext(DbContextOptions<VaultDbContext> options) : D
     public DbSet<VaultAuditEvent> AuditEvents => Set<VaultAuditEvent>();
     public DbSet<RelayItem> Items => Set<RelayItem>();
     public DbSet<ItemIdempotencyRecord> ItemIdempotencyRecords => Set<ItemIdempotencyRecord>();
+    public DbSet<UploadSession> UploadSessions => Set<UploadSession>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -77,6 +78,26 @@ public sealed class VaultDbContext(DbContextOptions<VaultDbContext> options) : D
             entity.HasIndex(x => new { x.UserId, x.Route, x.Key }).IsUnique();
             entity.HasOne<VaultUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<RelayItem>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<UploadSession>(entity =>
+        {
+            entity.ToTable("upload_sessions");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RequestFingerprint).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.ContentType).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.ExpectedSha256).HasMaxLength(64);
+            entity.Property(x => x.State).HasMaxLength(24).IsRequired();
+            entity.Property(x => x.StagingKey).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.StorageKey).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.Sha256).HasMaxLength(64);
+            entity.Property(x => x.CompleteResponseJson).HasColumnType("text");
+            entity.HasOne<VaultUser>().WithMany().HasForeignKey(x => x.OwnerUserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<VaultDevice>().WithMany().HasForeignKey(x => x.CreatedByDeviceId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(x => new { x.OwnerUserId, x.IntentKey }).IsUnique();
+            entity.HasIndex(x => new { x.State, x.ExpiresAt });
+            entity.HasIndex(x => x.ItemId);
         });
     }
 }

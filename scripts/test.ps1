@@ -52,6 +52,15 @@ function Invoke-ItemApi([string] $Method, [string] $Path, [string] $Payload, [st
     return Invoke-Curl $args $bodyPath
 }
 
+function Invoke-FileApi([string] $Method, [string] $Path, [string] $Key, [string] $ContentType, [string] $PayloadPath) {
+    $csrfBody = Join-Path $temporaryRoot 'file-csrf.json'
+    $status = Invoke-Curl @('--cacert', $certPath, '--cookie', $jarPath, '--cookie-jar', $jarPath, "$baseUrl/api/v1/auth/csrf") $csrfBody
+    Assert-Status $status 200 'File request CSRF token' $csrfBody
+    $csrfResponse = Get-Content -Raw -LiteralPath $csrfBody | ConvertFrom-Json
+    $args = @('--cacert', $certPath, '--cookie', $jarPath, '--header', "Origin: $origin", '--header', "$($csrfResponse.headerName): $($csrfResponse.token)", '--header', "Content-Type: $ContentType", '--header', "Idempotency-Key: $Key", '--request', $Method, '--data-binary', "@$PayloadPath", "$baseUrl$Path")
+    return Invoke-Curl $args $bodyPath
+}
+
 function Invoke-DockerCompose([string[]] $ComposeArguments) {
     & docker compose -p $projectName -f compose.yaml -f compose.test.yaml @ComposeArguments
     if ($LASTEXITCODE -ne 0) { throw "docker compose failed: $($ComposeArguments -join ' ')" }
@@ -141,9 +150,9 @@ try {
         throw 'A fresh PostgreSQL database did not receive the expected EF Core migrations.'
     }
 
-    $transferTables = & docker compose -p $projectName -f compose.yaml -f compose.test.yaml exec -T postgres psql -U vault_test -d vault_test -Atc "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('relay_items', 'item_idempotency_records');"
-    if ($LASTEXITCODE -ne 0 -or [int]($transferTables -join '').Trim() -ne 2) {
-        throw 'A fresh PostgreSQL database is missing Slice 3 transfer tables.'
+    $transferTables = & docker compose -p $projectName -f compose.yaml -f compose.test.yaml exec -T postgres psql -U vault_test -d vault_test -Atc "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('relay_items', 'item_idempotency_records', 'upload_sessions');"
+    if ($LASTEXITCODE -ne 0 -or [int]($transferTables -join '').Trim() -ne 3) {
+        throw 'A fresh PostgreSQL database is missing Slice 3/5 transfer tables.'
     }
 
     $bootstrapCount = & docker compose -p $projectName -f compose.yaml -f compose.test.yaml exec -T postgres psql -U vault_test -d vault_test -Atc 'SELECT COUNT(*) FROM users WHERE is_bootstrap = TRUE;'
@@ -221,6 +230,47 @@ try {
     $status = Invoke-Curl @('--cacert', $certPath, '--cookie', $jarPath, "$baseUrl/api/v1/items/$($urlItem.id)") $bodyPath
     Assert-Status $status 200 'Read URL item detail' $bodyPath
     if ((Get-Content -Raw -LiteralPath $bodyPath | ConvertFrom-Json).text -ne 'https://example.invalid/slice3-smoke') { throw 'URL surrounding whitespace was not normalized.' }
+
+    $fileBytes = [System.Text.Encoding]::UTF8.GetBytes('Synthetic Slice5 attachment payload')
+    $filePath = Join-Path $temporaryRoot 'synthetic-upload.bin'
+    $downloadPath = Join-Path $temporaryRoot 'synthetic-download.bin'
+    [System.IO.File]::WriteAllBytes($filePath, $fileBytes)
+    $fileHash = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $fileKey = [guid]::NewGuid().ToString('D')
+    $initPayload = @{ displayName = 'synthetic.bin'; contentType = 'application/octet-stream'; sizeBytes = $fileBytes.Length; sha256 = $fileHash; retentionDays = 2 } | ConvertTo-Json -Compress
+    $initPath = Join-Path $temporaryRoot 'upload-initiate.json'
+    [System.IO.File]::WriteAllText($initPath, $initPayload, [System.Text.UTF8Encoding]::new($false))
+    $status = Invoke-FileApi 'POST' '/api/v1/uploads/initiate' $fileKey 'application/json' $initPath
+    Assert-Status $status 201 'Initiate synthetic file upload' $bodyPath
+    $upload = Get-Content -Raw -LiteralPath $bodyPath | ConvertFrom-Json
+    if (-not $upload.uploadId -or $upload.maxAcceptedBytes -ne 100000000) { throw 'Upload initiation returned an invalid contract.' }
+    $status = Invoke-FileApi 'PUT' $upload.uploadUrl $fileKey 'application/octet-stream' $filePath
+    Assert-Status $status 200 'Stream synthetic file bytes' $bodyPath
+    $stagedFile = Get-Content -Raw -LiteralPath $bodyPath | ConvertFrom-Json
+    if ($stagedFile.state -ne 'staged' -or $stagedFile.sha256 -ne $fileHash) { throw 'Staged file SHA-256 did not match the synthetic source.' }
+    $emptyJsonPath = Join-Path $temporaryRoot 'upload-complete.json'
+    [System.IO.File]::WriteAllText($emptyJsonPath, '{}', [System.Text.UTF8Encoding]::new($false))
+    $completePath = "/api/v1/uploads/$($upload.uploadId)/complete"
+    $status = Invoke-FileApi 'POST' $completePath $fileKey 'application/json' $emptyJsonPath
+    Assert-Status $status 201 'Complete synthetic file upload' $bodyPath
+    $fileItem = Get-Content -Raw -LiteralPath $bodyPath | ConvertFrom-Json
+    if ($fileItem.type -ne 'file' -or -not $fileItem.id) { throw 'Completed upload did not return file item metadata.' }
+    $status = Invoke-FileApi 'POST' $completePath $fileKey 'application/json' $emptyJsonPath
+    Assert-Status $status 201 'Replay file completion' $bodyPath
+    if ((Get-Content -Raw -LiteralPath $bodyPath | ConvertFrom-Json).id -ne $fileItem.id) { throw 'Completion replay returned a different item.' }
+    $status = Invoke-Curl @('--cacert', $certPath, '--cookie', $jarPath, "$baseUrl/api/v1/items/$($fileItem.id)") $bodyPath
+    Assert-Status $status 200 'Read synthetic file metadata' $bodyPath
+    $fileDetail = Get-Content -Raw -LiteralPath $bodyPath | ConvertFrom-Json
+    if ($null -ne $fileDetail.text -or $fileDetail.sha256 -ne $fileHash -or $fileDetail.downloadUrl -ne "/api/v1/items/$($fileItem.id)/download") { throw 'File detail did not match the safe attachment contract.' }
+    $status = Invoke-Curl @('--cacert', $certPath, '--cookie', $jarPath, '--dump-header', $headersPath, "$baseUrl$($fileDetail.downloadUrl)") $downloadPath
+    Assert-Status $status 200 'Download synthetic file attachment' $downloadPath
+    if ((Get-FileHash -LiteralPath $downloadPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $fileHash) { throw 'Downloaded synthetic bytes did not match the uploaded file.' }
+    $downloadHeaders = Get-Content -Raw -LiteralPath $headersPath
+    if ($downloadHeaders -notmatch '(?im)^Content-Disposition:\s*attachment' -or $downloadHeaders -notmatch '(?im)^X-Content-Type-Options:\s*nosniff' -or $downloadHeaders -notmatch '(?im)^Cache-Control:\s*no-store') { throw 'Download response is missing attachment, nosniff, or no-store headers.' }
+    $status = Invoke-ItemApi 'DELETE' "/api/v1/items/$($fileItem.id)" '' ''
+    Assert-Status $status 204 'Delete downloaded synthetic file' $bodyPath
+    $status = Invoke-Curl @('--cacert', $certPath, '--cookie', $jarPath, "$baseUrl/api/v1/items/$($fileItem.id)/download") $bodyPath
+    Assert-Status $status 404 'File download after delete' $bodyPath
 
     $status = Invoke-ItemApi 'DELETE' "/api/v1/items/$itemId" '' ''
     Assert-Status $status 204 'Delete item' $bodyPath
@@ -304,15 +354,17 @@ try {
     Assert-Status $status 404 'Detail after committed delete race' $bodyPath
     if ((Get-Content -Raw -LiteralPath $bodyPath) -match [regex]::Escape($raceText)) { throw 'Detail after committed delete returned content.' }
 
-    $tieIds = @($parallelId)
-    for ($i = 0; $i -lt 4; $i++) {
+    $expireBeforeCursorSql = 'UPDATE relay_items SET "ExpiresAt" = NOW() - INTERVAL ''1 day'' WHERE "OwnerUserId" = ''{0}'' AND "State" = ''available'';' -f $login.userId
+    $null = Invoke-TestPsql $expireBeforeCursorSql
+    $tieIds = @()
+    for ($i = 0; $i -lt 5; $i++) {
         $tiePayload = @{ text = "Synthetic cursor tie $i" } | ConvertTo-Json -Compress
         $status = Invoke-ItemApi 'POST' '/api/v1/items/text' $tiePayload ([guid]::NewGuid().ToString('D'))
         Assert-Status $status 201 "Create cursor tie item $i" $bodyPath
         $tieIds += (Get-Content -Raw -LiteralPath $bodyPath | ConvertFrom-Json).id
     }
     $idSql = ($tieIds | ForEach-Object { "'$_'" }) -join ', '
-    $tieSql = 'UPDATE relay_items SET "CreatedAt" = TIMESTAMPTZ ''2026-10-12 04:45:00+00'' WHERE "Id" IN ({0});' -f $idSql
+    $tieSql = 'UPDATE relay_items SET "CreatedAt" = TIMESTAMPTZ ''2999-10-12 04:45:00+00'' WHERE "Id" IN ({0});' -f $idSql
     $null = Invoke-TestPsql $tieSql
     $status = Invoke-Curl @('--cacert', $certPath, '--cookie', $jarPath, "$baseUrl/api/v1/items?limit=2") $bodyPath
     Assert-Status $status 200 'First PostgreSQL cursor page for tied timestamps' $bodyPath
@@ -388,7 +440,7 @@ FROM generate_series(1, 9999);
         if ($LASTEXITCODE -ne 0) { throw 'Web lint failed.' }
     } finally { Pop-Location }
 
-    Write-Host 'Identity and Slice 3 checks passed: one-shot migrations; bootstrap username/password update and session revocation; HTTPS username sign-in and text/URL create-list-detail-delete-expiry flows; replay/conflict, same-key concurrency, tied-cursor paging and quota-race checks; API tests; web build/lint.'
+    Write-Host 'Identity and Slice 5 checks passed: migrations including upload sessions; bootstrap and session security; text/URL flows; API tests for streamed file staging, checksum, idempotent completion, owner scope, and safe attachment download; web build/lint.'
 }
 finally {
     if ($cleanupNeeded) {

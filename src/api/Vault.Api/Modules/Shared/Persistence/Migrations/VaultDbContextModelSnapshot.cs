@@ -192,6 +192,36 @@ namespace Vault.Api.Modules.Shared.Persistence.Migrations
                     b.ToTable("item_idempotency_records", (string)null);
                 });
 
+            modelBuilder.Entity("Vault.Api.Modules.Transfers.UploadSession", b =>
+                {
+                    b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+                    b.Property<string>("CompleteResponseJson").HasColumnType("text");
+                    b.Property<string>("ContentType").IsRequired().HasMaxLength(100).HasColumnType("character varying(100)");
+                    b.Property<DateTime>("CreatedAt").HasColumnType("timestamp with time zone");
+                    b.Property<Guid>("CreatedByDeviceId").HasColumnType("uuid");
+                    b.Property<string>("DisplayName").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
+                    b.Property<DateTime>("ExpiresAt").HasColumnType("timestamp with time zone");
+                    b.Property<long>("ExpectedSizeBytes").HasColumnType("bigint");
+                    b.Property<string>("ExpectedSha256").HasMaxLength(64).HasColumnType("character varying(64)");
+                    b.Property<Guid>("IntentKey").HasColumnType("uuid");
+                    b.Property<Guid?>("ItemId").HasColumnType("uuid");
+                    b.Property<Guid>("OwnerUserId").HasColumnType("uuid");
+                    b.Property<int>("RetentionDays").HasColumnType("integer");
+                    b.Property<string>("RequestFingerprint").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)");
+                    b.Property<string>("Sha256").HasMaxLength(64).HasColumnType("character varying(64)");
+                    b.Property<long?>("SizeBytes").HasColumnType("bigint");
+                    b.Property<string>("StagingKey").IsRequired().HasMaxLength(128).HasColumnType("character varying(128)");
+                    b.Property<string>("State").IsRequired().HasMaxLength(24).HasColumnType("character varying(24)");
+                    b.Property<string>("StorageKey").IsRequired().HasMaxLength(128).HasColumnType("character varying(128)");
+                    b.Property<DateTime>("UpdatedAt").HasColumnType("timestamp with time zone");
+                    b.HasKey("Id");
+                    b.HasIndex("CreatedByDeviceId");
+                    b.HasIndex("ItemId");
+                    b.HasIndex("OwnerUserId", "IntentKey").IsUnique();
+                    b.HasIndex("State", "ExpiresAt");
+                    b.ToTable("upload_sessions", (string)null);
+                });
+
             modelBuilder.Entity("Vault.Api.Modules.Transfers.RelayItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -294,6 +324,12 @@ namespace Vault.Api.Modules.Shared.Persistence.Migrations
                         .HasForeignKey("OwnerUserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Vault.Api.Modules.Transfers.UploadSession", b =>
+                {
+                    b.HasOne("Vault.Api.Modules.Identity.VaultDevice", null).WithMany().HasForeignKey("CreatedByDeviceId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+                    b.HasOne("Vault.Api.Modules.Identity.VaultUser", null).WithMany().HasForeignKey("OwnerUserId").OnDelete(DeleteBehavior.Cascade).IsRequired();
                 });
 #pragma warning restore 612, 618
         }

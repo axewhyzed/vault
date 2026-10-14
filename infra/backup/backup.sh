@@ -45,6 +45,7 @@ validate_inputs() {
   [[ -r "$AWS_SHARED_CREDENTIALS_FILE" ]] || die "B2 credentials secret is not readable"
   [[ -d /vault-files && -r /vault-files ]] || die "read-only file-volume mount /vault-files is missing"
   [[ -d /data-protection-keys && -r /data-protection-keys ]] || die "read-only Data Protection key mount /data-protection-keys is missing"
+  [[ -d /run/vault-maintenance && -w /run/vault-maintenance ]] || die "shared file maintenance lock volume is missing or not writable"
   [[ -n "$RESTIC_REPOSITORY" ]] || die "RESTIC_REPOSITORY is empty"
 }
 
@@ -65,9 +66,14 @@ main() {
   export AWS_SHARED_CREDENTIALS_FILE AWS_PROFILE AWS_DEFAULT_REGION
   export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE
 
-  STAGE=lock
-  exec 9>/run/vault-backup/backup.lock
-  flock -n 9 || die "another backup is already running"
+  # Exclude API file-volume mutations across pg_dump and the Restic volume scan.
+  # API upload/complete/delete operations take shared locks; sweep and other
+  # backups take exclusive locks on this same persistent volume lock file.
+  STAGE=maintenance-lock
+  touch /run/vault-maintenance/maintenance.lock
+  exec 8<>/run/vault-maintenance/maintenance.lock
+  flock -x 8
+  log "exclusive file maintenance lock acquired; PostgreSQL and volume will be captured without API file mutations or a concurrent backup"
 
   STAGE=database-connectivity
   local schema_version
@@ -85,7 +91,7 @@ main() {
   if [[ "$mode" == dry-run ]]; then
     STAGE=repository-connectivity
     restic cat config >/dev/null
-    log "dry run passed; would dump PostgreSQL database ${PGDATABASE}, back up the read-only future file and Data Protection volumes, and write encrypted snapshot metadata (commit=${VAULT_DEPLOYED_COMMIT_SHA}, schema=${VAULT_SCHEMA_VERSION})"
+    log "dry run passed; would dump PostgreSQL database ${PGDATABASE}, back up the read-only file and Data Protection volumes, and write encrypted snapshot metadata (commit=${VAULT_DEPLOYED_COMMIT_SHA}, schema=${VAULT_SCHEMA_VERSION})"
     return 0
   fi
 

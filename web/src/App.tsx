@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import FileUpload from './FileUpload';
 
 type Session = { userId: string; email: string; deviceId: string };
 type Csrf = { token: string; headerName: 'X-CSRF-TOKEN' };
 type ViewState = 'loading' | 'signed-out' | 'signed-in';
 type ItemSummary = {
-  id: string; type: 'text' | 'url'; state: string; displayName: string | null; sizeBytes: number;
+  id: string; type: 'text' | 'url' | 'file'; state: string; displayName: string | null; sizeBytes: number;
   createdAt: string; availableAt: string; expiresAt: string; version: number;
   sourceDevice: { id: string; name: string; platform: string };
 };
-type ItemDetail = ItemSummary & { text: string };
+type ItemDetail = ItemSummary & { text: string | null; contentType?: string; sha256?: string; downloadUrl?: string };
 type Quota = { activeBytes: number; maxActiveBytes: number; activeItems: number; maxActiveItems: number };
 type ItemPage = { items: ItemSummary[]; nextCursor: string | null; quota: Quota };
 type ApiError = { code?: string; message?: string; correlationId?: string };
@@ -203,7 +204,7 @@ function App() {
       if (response.status === 404 || response.status === 410) { const messageText = response.status === 410 ? 'This item has expired.' : 'This item could not be found.'; setDetailError(messageText); setItems((previous) => previous.filter((item) => item.id !== id)); if (window.location.pathname !== '/') { window.history.replaceState({}, '', '/'); setSelectedId(null); } return; }
       if (!response.ok) throw new Error(await handleApiFailure(response));
       const data = await readJson<ItemDetail>(response);
-      if (!data || typeof data.text !== 'string') throw new Error('Vault returned an invalid item response.');
+      if (!data || (data.type === 'file' ? data.text !== null || !data.downloadUrl || !data.contentType || !data.sha256 : typeof data.text !== 'string')) throw new Error('Vault returned an invalid item response.');
       if (gen === generationRef.current) setDetail(data);
     } catch (error) { if (gen === generationRef.current && detailRequest === detailRequestRef.current) setDetailError(error instanceof TypeError ? 'Vault is unreachable. Check your connection and retry.' : error instanceof Error ? error.message : 'Could not load this item.'); }
     finally { if (gen === generationRef.current && detailRequest === detailRequestRef.current) setDetailBusy(false); }
@@ -262,12 +263,33 @@ function App() {
   function backToList() { window.history.pushState({}, '', '/'); setSelectedId(null); setDeleteConfirm(false); setDetailError(''); }
 
   async function copyText() {
-    if (!detail) return;
+    if (!detail || detail.type === 'file' || typeof detail.text !== 'string') return;
     try {
       if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(detail.text);
       else throw new Error('clipboard unavailable');
       setCopyMessage('Copied to clipboard.');
     } catch { setCopyMessage('Clipboard access failed. Select the text above and copy it.'); }
+  }
+
+  async function downloadFile() {
+    if (!detail || detail.type !== 'file' || !detail.downloadUrl) return;
+    setCopyMessage('Preparing attachment…');
+    try {
+      const url = new URL(detail.downloadUrl, window.location.origin);
+      if (url.origin !== window.location.origin || !url.pathname.startsWith(`${API}/`)) throw new Error('Vault returned an invalid download address.');
+      const response = await fetch(`${url.pathname}${url.search}`, { credentials: 'same-origin', cache: 'no-store' });
+      if (response.status === 401) { signOutOnUnauthorized(); return; }
+      if (!response.ok) throw new Error(await handleApiFailure(response));
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = detail.displayName?.trim() || 'vault-attachment';
+      link.rel = 'noopener';
+      document.body.append(link); link.click(); link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      setCopyMessage('Attachment download started.');
+    } catch (error) { setCopyMessage(error instanceof Error ? error.message : 'Could not download this attachment.'); }
   }
 
   async function deleteItem() {
@@ -294,6 +316,7 @@ function App() {
         <div className="inbox-heading-row"><div><p className="eyebrow"><span className="eyebrow-line" /> YOUR PRIVATE SPACE</p><h1 ref={inboxHeadingRef} id="inbox-title" tabIndex={-1}>Your inbox</h1><p className="intro">Signed in as <strong>{session.email}</strong></p></div><div className="device-chip"><span className="device-indicator" /><span><b>This browser</b><small>Current session</small></span></div></div>
         <div className="quota-card" aria-label="Storage quota"><div className="quota-title"><strong>Vault storage</strong><span>{quota ? `${formatBytes(quota.activeBytes)} of ${formatBytes(quota.maxActiveBytes)}` : 'Loading usage…'}</span></div><div className="quota-track" role="progressbar" aria-label="Storage used" aria-valuemin={0} aria-valuemax={quota?.maxActiveBytes ?? 2_000_000_000} aria-valuenow={quota?.activeBytes ?? 0}><span style={{ width: `${bytePercent}%` }} /></div><small>{quota ? `${quota.activeItems.toLocaleString()} of ${quota.maxActiveItems.toLocaleString()} items` : ' '}</small></div>
         <div className={`vault-workspace ${selectedId ? 'vault-workspace--detail' : ''}`}>
+          <div className="send-stack">
           <section className="send-card" aria-labelledby="send-title"><div className="section-heading"><div><p className="card-kicker">SEND SOMETHING</p><h2 id="send-title">Add to Vault</h2></div><span className="send-lock" aria-hidden="true">↗</span></div>
             <form onSubmit={(event) => void sendItem(event)}>
               <div className="send-tabs" role="group" aria-label="Item type"><button type="button" className={kind === 'text' ? 'send-tab is-active' : 'send-tab'} aria-pressed={kind === 'text'} onClick={() => { setKind('text'); setContent(''); resetSendRetry(); setSendMessage(''); }}>Text</button><button type="button" className={kind === 'url' ? 'send-tab is-active' : 'send-tab'} aria-pressed={kind === 'url'} onClick={() => { setKind('url'); setContent(''); resetSendRetry(); setSendMessage(''); }}>Link</button></div>
@@ -304,12 +327,14 @@ function App() {
               <div className="send-actions"><button className="primary-button" type="submit" disabled={sendBusy || !content.trim()}><span>{sendBusy ? 'Sending…' : 'Send to Vault'}</span><span aria-hidden="true">→</span></button>{retryIntent && <button className="secondary-button retry-send" type="button" disabled={sendBusy} onClick={() => void sendItem(undefined, true)}>Retry same item</button>}</div>
             </form>
           </section>
+          {!selectedId && <FileUpload retentionDays={retentionDays} onComplete={() => void loadPage(null, false, generationRef.current)} onUnauthorized={signOutOnUnauthorized} />}
+          </div>
           <section className="items-panel" aria-label="Inbox items">
             <div className="items-heading"><div><p className="card-kicker">YOUR ITEMS</p><h2>{selectedId ? 'Item details' : 'Recent items'}</h2></div>{selectedId ? <button className="secondary-button mobile-back" type="button" onClick={backToList}>← Back</button> : <button className="secondary-button" type="button" onClick={() => void loadPage(null, false)} disabled={listBusy}>{listBusy ? 'Refreshing…' : 'Refresh'}</button>}</div>
             {!selectedId && inboxNotice && <p className="inbox-notice" role="status" aria-live="polite">{inboxNotice}</p>}
             {listError && <p className="panel-error" role="alert">{listError}</p>}
-            {!selectedId && <><ul className="item-list" aria-label="Newest first">{items.map((item) => <li key={item.id}><button type="button" className="item-row" onClick={() => openItem(item.id)}><span className="item-type-icon" aria-hidden="true">{item.type === 'url' ? '↗' : 'T'}</span><span className="item-row-copy"><strong>{item.displayName?.trim() || (item.type === 'url' ? itemPreview(item) : 'Text item')}</strong><small>Added {formatDate(item.createdAt)} · {formatBytes(item.sizeBytes)}</small><small>Expires {formatDate(item.expiresAt)}</small></span><span className="item-chevron" aria-hidden="true">›</span></button></li>)}</ul>{!items.length && !listBusy && <div className="inbox-empty"><span aria-hidden="true">◇</span><h3>Your inbox is clear.</h3><p>Send text or a link and it will appear here.</p></div>}{listBusy && !items.length && <p className="panel-loading" role="status">Loading your items…</p>}{nextCursor && <button className="load-more" type="button" disabled={listBusy} onClick={() => void loadPage(nextCursor, true)}>{listBusy ? 'Loading…' : 'Load more'}</button>}</>}
-            {selectedId && <div className="detail-view">{detailBusy && <p className="panel-loading" role="status">Loading item…</p>}{detailError && <p className="panel-error" role="alert">{detailError}</p>}{detail && <><div className="detail-title"><span className="item-type-icon" aria-hidden="true">{detail.type === 'url' ? '↗' : 'T'}</span><div><p className="card-kicker">{detail.type === 'url' ? 'LINK' : 'TEXT'}</p><h3>{detail.displayName?.trim() || (detail.type === 'url' ? 'Saved link' : 'Text item')}</h3></div></div><pre className="detail-text" tabIndex={0} aria-label="Saved item text">{detail.text}</pre><dl className="detail-meta"><div><dt>Sent from</dt><dd>{detail.sourceDevice.name} · {detail.sourceDevice.platform === 'web' ? 'This browser' : detail.sourceDevice.platform}</dd></div><div><dt>Added</dt><dd>{formatDate(detail.createdAt)}</dd></div><div><dt>Expires</dt><dd>{formatDate(detail.expiresAt)}</dd></div><div><dt>Size</dt><dd>{formatBytes(detail.sizeBytes)}</dd></div></dl><p className="copy-message" role="status" aria-live="polite">{copyMessage}</p>{!deleteConfirm ? <div className="detail-actions"><button className="primary-button" type="button" onClick={() => void copyText()}>Copy text</button><button className="danger-button" type="button" onClick={() => setDeleteConfirm(true)}>Delete</button></div> : <div className="delete-confirm" role="group" aria-label="Confirm item deletion"><p>Delete this item from Vault?</p><button className="danger-button" type="button" disabled={deleteBusy} onClick={() => void deleteItem()}>{deleteBusy ? 'Deleting…' : 'Delete item'}</button><button className="secondary-button" type="button" disabled={deleteBusy} onClick={() => setDeleteConfirm(false)}>Cancel</button></div>}{detailError && <p className="panel-error" role="alert">{detailError}</p>}</>}</div>}
+            {!selectedId && <><ul className="item-list" aria-label="Newest first">{items.map((item) => <li key={item.id}><button type="button" className="item-row" onClick={() => openItem(item.id)}><span className="item-type-icon" aria-hidden="true">{item.type === 'url' ? '↗' : item.type === 'file' ? '↓' : 'T'}</span><span className="item-row-copy"><strong>{item.displayName?.trim() || (item.type === 'url' ? 'Saved link' : item.type === 'file' ? 'File attachment' : 'Text item')}</strong><small>Added {formatDate(item.createdAt)} · {formatBytes(item.sizeBytes)}</small><small>Expires {formatDate(item.expiresAt)}</small></span><span className="item-chevron" aria-hidden="true">›</span></button></li>)}</ul>{!items.length && !listBusy && <div className="inbox-empty"><span aria-hidden="true">◇</span><h3>Your inbox is clear.</h3><p>Send text, a link, or an attachment and it will appear here.</p></div>}{listBusy && !items.length && <p className="panel-loading" role="status">Loading your items…</p>}{nextCursor && <button className="load-more" type="button" disabled={listBusy} onClick={() => void loadPage(nextCursor, true)}>{listBusy ? 'Loading…' : 'Load more'}</button>}</>}
+            {selectedId && <div className="detail-view">{detailBusy && <p className="panel-loading" role="status">Loading item…</p>}{detailError && <p className="panel-error" role="alert">{detailError}</p>}{detail && <><div className="detail-title"><span className="item-type-icon" aria-hidden="true">{detail.type === 'url' ? '↗' : detail.type === 'file' ? '↓' : 'T'}</span><div><p className="card-kicker">{detail.type === 'url' ? 'LINK' : detail.type === 'file' ? 'FILE ATTACHMENT' : 'TEXT'}</p><h3>{detail.displayName?.trim() || (detail.type === 'url' ? 'Saved link' : detail.type === 'file' ? 'File attachment' : 'Text item')}</h3></div></div>{detail.type === 'file' ? <dl className="detail-meta file-detail-meta"><div><dt>File type</dt><dd>{detail.contentType}</dd></div><div><dt>SHA-256</dt><dd><code>{detail.sha256}</code></dd></div></dl> : <pre className="detail-text" tabIndex={0} aria-label="Saved item text">{detail.text}</pre>}<dl className="detail-meta"><div><dt>Sent from</dt><dd>{detail.sourceDevice.name} · {detail.sourceDevice.platform === 'web' ? 'This browser' : detail.sourceDevice.platform}</dd></div><div><dt>Added</dt><dd>{formatDate(detail.createdAt)}</dd></div><div><dt>Expires</dt><dd>{formatDate(detail.expiresAt)}</dd></div><div><dt>Size</dt><dd>{formatBytes(detail.sizeBytes)}</dd></div></dl><p className="copy-message" role="status" aria-live="polite">{copyMessage}</p>{!deleteConfirm ? <div className="detail-actions">{detail.type === 'file' ? <button className="primary-button" type="button" onClick={() => void downloadFile()}>Download attachment</button> : <button className="primary-button" type="button" onClick={() => void copyText()}>Copy text</button>}<button className="danger-button" type="button" onClick={() => setDeleteConfirm(true)}>Delete</button></div> : <div className="delete-confirm" role="group" aria-label="Confirm item deletion"><p>Delete this item from Vault?</p><button className="danger-button" type="button" disabled={deleteBusy} onClick={() => void deleteItem()}>{deleteBusy ? 'Deleting…' : 'Delete item'}</button><button className="secondary-button" type="button" disabled={deleteBusy} onClick={() => setDeleteConfirm(false)}>Cancel</button></div>}{detailError && <p className="panel-error" role="alert">{detailError}</p>}</>}</div>}
           </section>
         </div>
       </section>}
@@ -317,7 +342,5 @@ function App() {
     </main>
   );
 }
-
-function itemPreview(item: ItemSummary) { return item.type === 'url' ? 'Saved link' : 'Text item'; }
 
 export default App;

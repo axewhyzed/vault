@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using Vault.Api.Modules.Identity;
 using Vault.Api.Modules.Shared.Persistence;
+using Vault.Api.Modules.Storage;
 
 namespace Vault.Api.Modules.Transfers;
 
@@ -34,7 +35,9 @@ internal static class TransferEndpoints
             .WithMetadata(new RequestSizeLimitAttribute(2_000_000)).WithName("CreateUrlItem").WithSummary("Create a URL item without fetching it.").Produces<CreateItemResponse>(201).Produces<ErrorResponse>(400).Produces<ErrorResponse>(401).Produces<ErrorResponse>(403).Produces<ErrorResponse>(409).Produces<ErrorResponse>(413).Produces<ErrorResponse>(422);
         group.MapGet("", ListAsync).WithName("ListItems").WithSummary("List active items newest first.").Produces<ListItemsResponse>().Produces<ErrorResponse>(400).Produces<ErrorResponse>(401);
         group.MapGet("/{id:guid}", GetAsync).WithName("GetItem").WithSummary("Read one owned item.").Produces<ItemDetailResponse>().Produces<ErrorResponse>(401).Produces<ErrorResponse>(403).Produces<ErrorResponse>(404).Produces<ErrorResponse>(410);
-        group.MapDelete("/{id:guid}", DeleteAsync).WithName("DeleteItem").WithSummary("Delete an owned item.").Produces(204).Produces<ErrorResponse>(401).Produces<ErrorResponse>(403);
+        group.MapDelete("/{id:guid}", async (Guid id, HttpContext context, VaultDbContext db, TimeProvider clock, LocalFileStore files,
+            StorageMaintenanceGate gate, CancellationToken ct) => await DeleteAsync(id, context, db, clock, files, gate, ct))
+            .WithName("DeleteItem").WithSummary("Delete an owned item.").Produces(204).Produces<ErrorResponse>(401).Produces<ErrorResponse>(403);
         return endpoints;
     }
 
@@ -150,20 +153,27 @@ internal static class TransferEndpoints
                          join device in db.Devices on item.CreatedByDeviceId equals device.Id
                          where item.Id == id && item.OwnerUserId == userId
                          select new { item, device }).SingleOrDefaultAsync(ct);
-        if (row is null || row.item.State != "available") return Error(context, 404, "item_not_found", "The item was not found.");
+        if (row is null) return Error(context, 404, "item_not_found", "The item was not found.");
         var now = clock.GetUtcNow().UtcDateTime;
-        if (row.item.ExpiresAt <= now) return Error(context, 410, "item_expired", "The item has expired.");
+        if (row.item.State == "expired" || (row.item.State == "available" && row.item.ExpiresAt <= now)) return Error(context, 410, "item_expired", "The item has expired.");
+        if (row.item.State != "available") return Error(context, 404, "item_not_found", "The item was not found.");
         var summary = ToSummary(row.item, row.device);
         var snapshot = new ItemDetailResponse(summary.Id, summary.Type, summary.State, summary.DisplayName, summary.SizeBytes, summary.CreatedAt,
-            summary.AvailableAt, summary.ExpiresAt, summary.Version, summary.SourceDevice, row.item.TextContent ?? "");
+            summary.AvailableAt, summary.ExpiresAt, summary.Version, summary.SourceDevice,
+            row.item.Type == "file" ? null : row.item.TextContent,
+            row.item.ContentType,
+            row.item.Type == "file" ? $"/api/v1/items/{row.item.Id:D}/download" : null,
+            row.item.Type == "file" ? await db.UploadSessions.Where(x => x.ItemId == row.item.Id).Select(x => x.Sha256).SingleOrDefaultAsync(ct) : null);
         db.AuditEvents.Add(Audit("item_read", userId, deviceId, id, context, now));
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return Results.Ok(snapshot);
     }
 
-    private static async Task<IResult> DeleteAsync(Guid id, HttpContext context, VaultDbContext db, TimeProvider clock, CancellationToken ct)
+    private static async Task<IResult> DeleteAsync(Guid id, HttpContext context, VaultDbContext db, TimeProvider clock,
+        LocalFileStore files, StorageMaintenanceGate gate, CancellationToken ct)
     {
+        using var maintenanceLock = gate.EnterShared();
         var userId = IdentityEndpoints.GetGuid(context.User, "userId");
         var deviceId = IdentityEndpoints.GetGuid(context.User, "deviceId");
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
@@ -179,7 +189,9 @@ internal static class TransferEndpoints
             db.AuditEvents.Add(Audit("item_deleted", userId, deviceId, item.Id, context, now));
             await db.SaveChangesAsync(ct);
         }
+        var session = item is null ? null : await db.UploadSessions.SingleOrDefaultAsync(x => x.ItemId == item.Id, ct);
         await transaction.CommitAsync(ct);
+        if (session is not null) files.DeleteObject(session.StorageKey);
         return Results.NoContent();
     }
 
@@ -257,7 +269,7 @@ internal static class TransferEndpoints
     internal sealed record ItemSummary(Guid Id, string Type, string State, string DisplayName, long SizeBytes, DateTime CreatedAt,
         DateTime AvailableAt, DateTime ExpiresAt, int Version, SourceDevice SourceDevice);
     internal sealed record ItemDetailResponse(Guid Id, string Type, string State, string DisplayName, long SizeBytes, DateTime CreatedAt,
-        DateTime AvailableAt, DateTime ExpiresAt, int Version, SourceDevice SourceDevice, string Text);
+        DateTime AvailableAt, DateTime ExpiresAt, int Version, SourceDevice SourceDevice, string? Text, string ContentType, string? DownloadUrl, string? Sha256);
     internal sealed record QuotaResponse(long ActiveBytes, long MaxActiveBytes, long ActiveItems, int MaxActiveItems);
     internal sealed record ListItemsResponse(ItemSummary[] Items, string? NextCursor, QuotaResponse Quota);
     private sealed record CursorPayload(int Version, string CreatedAt, Guid Id);

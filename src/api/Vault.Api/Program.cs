@@ -11,11 +11,13 @@ using Vault.Api.Modules.Identity;
 using Vault.Api.Modules.Monitoring;
 using Vault.Api.Modules.Transfers;
 using Vault.Api.Modules.Shared.Persistence;
+using Vault.Api.Modules.Storage;
 using Vault.Api;
 
 const string updateBootstrapCredentialsArgument = "--update-bootstrap-credentials";
 var updateBootstrapCredentials = args.Contains(updateBootstrapCredentialsArgument, StringComparer.Ordinal);
 var builder = WebApplication.CreateBuilder(updateBootstrapCredentials ? Array.Empty<string>() : args);
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 110_000_000);
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
@@ -30,6 +32,10 @@ var connectionString = builder.Configuration.GetConnectionString("Vault")
 
 builder.Services.AddDbContext<VaultDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSingleton<LocalFileStore>();
+builder.Services.AddSingleton<IFileVolumeCapacity, DriveInfoFileVolumeCapacity>();
+builder.Services.AddSingleton<StorageMaintenanceGate>();
+builder.Services.AddSingleton<UploadInitiationLimiter>();
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer(OpenApiContract.TransformAsync));
 var dataProtection = builder.Services.AddDataProtection()
@@ -137,6 +143,17 @@ if (updateBootstrapCredentials)
     return;
 }
 
+if (args.Contains("--sweep-files", StringComparer.Ordinal))
+{
+    var applySweep = args.Contains("--apply", StringComparer.Ordinal);
+    await using var scope = app.Services.CreateAsyncScope();
+    await FileMaintenance.RunAsync(scope.ServiceProvider.GetRequiredService<VaultDbContext>(),
+        scope.ServiceProvider.GetRequiredService<LocalFileStore>(), scope.ServiceProvider.GetRequiredService<StorageMaintenanceGate>(),
+        scope.ServiceProvider.GetRequiredService<TimeProvider>(),
+        Console.Out, CancellationToken.None, applySweep);
+    return;
+}
+
 app.UseForwardedHeaders();
 app.UseMiddleware<RequestCorrelationMiddleware>();
 app.UseExceptionHandler(handler => handler.Run(async context =>
@@ -159,6 +176,7 @@ app.MapOpenApi("/api/openapi/{documentName}.json").AllowAnonymous();
 app.MapMonitoringEndpoints();
 app.MapIdentityEndpoints();
 app.MapTransferEndpoints();
+app.MapFileEndpoints();
 
 var applyMigrations = app.Configuration.GetValue<bool>("Database:ApplyMigrations");
 var migrationOnly = app.Configuration.GetValue<bool>("Database:MigrationOnly");

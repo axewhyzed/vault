@@ -113,8 +113,23 @@ h1, h2, p { margin-top: 0; }
 .quota-track span { display: block; height: 100%; border-radius: inherit; background: #72885c; transition: width 180ms ease; }
 .quota-card > small { display: block; margin-top: 8px; }
 .vault-workspace { display: grid; grid-template-columns: minmax(275px, .78fr) minmax(0, 1.22fr); align-items: start; gap: 22px; }
+.send-stack { min-width: 0; display: grid; gap: 18px; }
 .send-card, .items-panel { min-width: 0; border: 1px solid #e0e1d9; border-radius: 6px; background: var(--card); }
 .send-card { padding: 22px; }
+.file-upload-card { min-width: 0; padding: 22px; border: 1px solid #e0e1d9; border-radius: 6px; background: var(--card); }
+.file-upload-card .field-group input[type="file"] { min-height: 46px; padding: 8px; font-size: 11px; }
+.file-upload-card .field-group input[type="file"]::file-selector-button { min-height: 28px; margin-right: 9px; border: 1px solid #d8dacf; border-radius: 3px; padding: 0 9px; color: #526048; background: #f4f4ed; font: inherit; cursor: pointer; }
+.upload-file-meta { margin: 0 0 12px; border-top: 1px solid #e7e8e1; }
+.upload-file-meta div { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 9px; padding: 7px 0; border-bottom: 1px solid #ecece6; }
+.upload-file-meta dt { color: #85897f; font-size: 10px; }
+.upload-file-meta dd { min-width: 0; margin: 0; color: #535b4f; font-size: 10px; overflow-wrap: anywhere; }
+.upload-progress { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 10px; margin: 10px 0; color: #5e6857; font-size: 10px; }
+.upload-progress label { grid-column: 1 / -1; }
+.upload-progress progress { width: 100%; height: 8px; accent-color: #72885c; }
+.upload-progress span { min-width: 35px; text-align: right; font-variant-numeric: tabular-nums; }
+.upload-hash { margin: -3px 0 10px; color: #72796d; font-size: 9px; line-height: 1.5; overflow-wrap: anywhere; }
+.upload-hash code, .file-detail-meta code { font-family: var(--mono); overflow-wrap: anywhere; }
+.file-detail-meta { margin-bottom: 12px; }
 .section-heading, .items-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .section-heading { margin-bottom: 17px; }
 .section-heading .card-kicker, .items-heading .card-kicker { margin-bottom: 6px; }
@@ -222,6 +237,7 @@ h1, h2, p { margin-top: 0; }
   .items-heading { min-height: 70px; padding: 12px; }
   .item-row { padding-right: 12px; padding-left: 12px; }
   .vault-workspace--detail .send-card, .vault-workspace--detail .items-heading:not(:has(.mobile-back)) { display: none; }
+  .vault-workspace--detail .send-stack { display: none; }
   .vault-workspace--detail .items-panel { display: block; }
   .vault-workspace--detail .mobile-back { display: inline-flex; align-items: center; justify-content: center; }
   .detail-view { padding: 16px 12px; }

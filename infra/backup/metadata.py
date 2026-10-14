@@ -58,7 +58,7 @@ def main() -> int:
             "artifact": "mounted-volume:/vault-files",
             "object_count": file_count,
             "bytes": file_bytes,
-            "status": "empty-before-file-slice" if file_count == 0 else "present",
+            "status": "present" if file_count else "empty",
         },
         "data_protection_keys": {
             "volume_path": "/home/app/.aspnet/DataProtection-Keys",

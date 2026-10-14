@@ -20,9 +20,11 @@ services:
   dpkeys-init:
     image: alpine:3.22
     user: "0:0"
-    command: ["sh", "-c", "chown -R 1654:1654 /keys && chmod 700 /keys"]
+    command: ["sh", "-c", "chown -R 1654:1654 /keys && chmod 700 /keys && mkdir -p /files/staging /files/objects && chown 1654:1654 /files /files/staging /files/objects && chmod 700 /files /files/staging /files/objects && mkdir -p /maintenance && chown 1654:0 /maintenance && chmod 770 /maintenance && touch /maintenance/maintenance.lock && chown 1654:0 /maintenance/maintenance.lock && chmod 660 /maintenance/maintenance.lock"]
     volumes:
       - data_protection_keys:/keys
+      - file_data:/files
+      - maintenance_lock:/maintenance
     restart: "no"
 
   api:
@@ -42,8 +44,12 @@ services:
       Security__AllowedOrigins__1: ${VAULT_LAN_ORIGIN:-}
       DataProtection__ApplicationName: Vault
       DataProtection__KeysPath: /home/app/.aspnet/DataProtection-Keys
+      Storage__FilesPath: /var/lib/vault/files
+      Storage__MaintenanceLockPath: /run/vault-maintenance/maintenance.lock
     volumes:
       - data_protection_keys:/home/app/.aspnet/DataProtection-Keys
+      - file_data:/var/lib/vault/files
+      - maintenance_lock:/run/vault-maintenance
     networks:
       app_net:
         ipv4_address: ${VAULT_API_IP:-172.30.10.11}
@@ -90,6 +96,8 @@ services:
 volumes:
   postgres_data:
   data_protection_keys:
+  file_data:
+  maintenance_lock:
 
 networks:
   app_net:
