@@ -236,6 +236,24 @@ public sealed class IdentitySecurityTests
     }
 
     [Fact]
+    public async Task Bootstrap_password_minimum_length_requirement_is_three_characters()
+    {
+        using var host = await TestApiHost.CreateAsync();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => host.RunSeederAsync(TestApiHost.Email1, "12", TestApiHost.Username1, syncCredentials: true));
+        Assert.Equal("Bootstrap:Password must be at least 3 characters.", exception.Message);
+
+        const string shortPassword = "123";
+        await host.RunSeederAsync(TestApiHost.Email1, shortPassword, TestApiHost.Username1, syncCredentials: true);
+
+        using var client = host.CreateClient();
+        var csrf = await GetCsrfAsync(client);
+        using var login = await SendLoginAsync(client, TestApiHost.Username1, shortPassword, csrf.Token, "192.0.2.31");
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+    }
+
+    [Fact]
     public async Task Invalid_credentials_are_audited_and_sign_in_is_limited_to_five_per_client_ip()
     {
         using var host = await TestApiHost.CreateAsync();

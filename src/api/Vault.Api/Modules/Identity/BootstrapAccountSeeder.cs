@@ -142,7 +142,7 @@ public sealed class BootstrapAccountSeeder(VaultDbContext database, IPasswordHas
 
     private static void ValidatePassword(string password)
     {
-        if (password.Length < 14)
-            throw new InvalidOperationException("Bootstrap:Password must be at least 14 characters.");
+        if (password.Length < 3)
+            throw new InvalidOperationException("Bootstrap:Password must be at least 3 characters.");
     }
 }
