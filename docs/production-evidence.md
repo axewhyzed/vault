@@ -25,12 +25,12 @@ This ledger separates repository/configuration facts from production facts. **Pe
 - Deployment date/time (UTC): 2026-10-13 19:01 UTC
 - Vault commit SHA: 118c7d5858bc654518a3d4c12ce44000d9ee3d3b
 - API/web image identifiers: ghcr.io/axewhyzed/vault-api:latest, ghcr.io/axewhyzed/vault-web:latest
-- EF migration level: 20261014000000_TransfersSlice3 (InitialSchema, AccountSessionFoundation, TransfersSlice3)
-- Coolify deployment result and health: Healthy (200 OK on /healthz and /health/ready)
-- Smoke flow result: User successfully signed in and signed out on live web UI (https://vault.axewhyzedlabs.co.in)
+- EF migration level: 20261014154206_UsernameLoginAndBootstrapCredentialManagement (InitialSchema, AccountSessionFoundation, TransfersSlice3, UsernameLoginAndBootstrapCredentialManagement)
+- Coolify deployment result and health: Healthy (200 OK on /healthz, /health/ready, and /api/v1/auth/csrf)
+- Smoke flow result: User successfully signed in and restored session on live web UI (https://vault.axewhyzedlabs.co.in) using username and short password
 - External checks and operator: Mihir Bambhaniya
 - Backup engine: Coolify S3 native backup to Backblaze B2 (Bucket: vault-backup-axewhyzed)
-- Issues/follow-up: None. Service fully live.
+- Issues/follow-up: None. Service fully live. Upstream pinned to vault-api-backend on private backend network.
 
 ## Product and MVP gates
 
