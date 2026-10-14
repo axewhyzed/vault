@@ -68,6 +68,8 @@ docker volume create "$SOURCE_DP_KEYS" >/dev/null
 docker volume create "$TARGET_FILES" >/dev/null
 docker volume create "$TARGET_DP_KEYS" >/dev/null
 docker volume create "$LOCK_VOLUME" >/dev/null
+docker run --rm --network none --mount "type=volume,src=$LOCK_VOLUME,dst=/maintenance" alpine:3.22 \
+  sh -c 'touch /maintenance/maintenance.lock && chown -R 1654:0 /maintenance && chmod 770 /maintenance && chmod 660 /maintenance/maintenance.lock'
 printf 'Synthetic drill: isolated resources created.\n'
 
 docker run --detach --name "$SOURCE" --network "$NETWORK" --network-alias source-db \
@@ -89,6 +91,8 @@ docker exec "$SOURCE" psql -U vault -d vault -v ON_ERROR_STOP=1 -c \
 printf 'Synthetic drill: test fixture seeded.\n'
 docker run --rm --network none --mount "type=volume,src=$SOURCE_DP_KEYS,dst=/data-protection-keys" \
   alpine:3.22 sh -c 'printf synthetic-key-material > /data-protection-keys/test-key.xml'
+docker run --rm --network none --mount "type=volume,src=$SOURCE_FILES,dst=/vault-files" \
+  alpine:3.22 sh -c 'mkdir -p /vault-files/objects && printf synthetic-file-payload > /vault-files/objects/synthetic-fixture.bin'
 
 docker run --rm --user 0:0 --network "$NETWORK" --mount "type=bind,src=$DOCKER_WORK/repository,dst=/repository" \
   --mount "type=bind,src=$DOCKER_WORK/restic-password,dst=/run/secrets/restic_password,readonly" \
@@ -104,7 +108,9 @@ docker run --rm --user 0:0 --network "$NETWORK" \
   --mount "type=bind,src=$DOCKER_WORK/b2-credentials,dst=/run/secrets/b2_credentials,readonly" \
   --mount "type=volume,src=$SOURCE_FILES,dst=/vault-files,readonly" \
   --mount "type=volume,src=$SOURCE_DP_KEYS,dst=/data-protection-keys,readonly" \
-  --mount "type=volume,src=$LOCK_VOLUME,dst=/run/vault-backup" \
+  --mount "type=volume,src=$LOCK_VOLUME,dst=/run/vault-maintenance" \
+  --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,size=2g,mode=1777 \
+  --cap-drop ALL --cap-add DAC_READ_SEARCH --security-opt no-new-privileges:true \
   --env VAULT_BACKUP_TARGET=synthetic --env VAULT_DEPLOYED_COMMIT_SHA=0123456789abcdef0123456789abcdef01234567 \
   --env PGHOST=source-db --env PGPORT=5432 --env PGDATABASE=vault --env PGUSER=vault \
   --env "PGPASSWORD=$SOURCE_PASSWORD" --env PGSSLMODE=disable \
@@ -112,7 +118,7 @@ docker run --rm --user 0:0 --network "$NETWORK" \
   --env RESTIC_CACHE_DIR=/tmp/restic-cache --env AWS_SHARED_CREDENTIALS_FILE=/run/secrets/b2_credentials \
   --env AWS_PROFILE=default --env AWS_DEFAULT_REGION=us-west-004 \
   "$IMAGE" /usr/local/bin/vault-backup >/dev/null
-printf 'Synthetic drill: PostgreSQL and empty file volume backed up.\n'
+printf 'Synthetic drill: PostgreSQL, synthetic binary file, and Data Protection key backed up.\n'
 
 SNAPSHOTS="$(docker run --rm --user 0:0 --network none --mount "type=bind,src=$DOCKER_WORK/repository,dst=/repository" \
   --mount "type=bind,src=$DOCKER_WORK/restic-password,dst=/run/secrets/restic_password,readonly" \
@@ -152,7 +158,9 @@ printf 'Synthetic drill: isolated restore script completed.\n'
 ACTUAL="$(docker exec "$TARGET" psql -U vault_restore -d vault_restore -XAtq -v ON_ERROR_STOP=1 \
   -c "SELECT body FROM backup_smoke WHERE id='fixture-1'")"
 [[ "$ACTUAL" == 'synthetic restore fixture' ]] || { printf 'Synthetic restored data mismatch\n' >&2; exit 1; }
-[[ "$RESTORE_OUTPUT" == *"file_objects=0"* ]] || { printf 'Restore did not report the expected empty future file volume\n' >&2; exit 1; }
+[[ "$RESTORE_OUTPUT" == *"file_objects=1"* ]] || { printf 'Restore did not report the synthetic file volume fixture\n' >&2; exit 1; }
+RESTORED_FILE="$(docker run --rm --network none --mount "type=volume,src=$TARGET_FILES,dst=/restore-files,readonly" alpine:3.22 cat /restore-files/objects/synthetic-fixture.bin)"
+[[ "$RESTORED_FILE" == 'synthetic-file-payload' ]] || { printf 'Synthetic file payload was not restored correctly\n' >&2; exit 1; }
 DP_KEY="$(docker run --rm --network none --mount "type=volume,src=$TARGET_DP_KEYS,dst=/restore-data-protection-keys,readonly" alpine:3.22 cat /restore-data-protection-keys/test-key.xml)"
 [[ "$DP_KEY" == 'synthetic-key-material' ]] || { printf 'Synthetic Data Protection key restore mismatch\n' >&2; exit 1; }
-printf 'Synthetic isolated restore passed (snapshot=%s, fixture row verified, future file volume empty).\n' "$SNAPSHOT"
+printf 'Synthetic isolated restore passed (snapshot=%s, fixture row and binary file verified).\n' "$SNAPSHOT"

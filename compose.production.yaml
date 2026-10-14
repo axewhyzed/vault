@@ -13,16 +13,19 @@ x-api-environment: &api-environment
   Security__AllowedOrigins__0: https://${VAULT_DOMAIN:?Set the public domain for Vault}
   DataProtection__ApplicationName: Vault
   DataProtection__KeysPath: /home/app/.aspnet/DataProtection-Keys
+  Storage__FilesPath: /var/lib/vault/files
+  Storage__MaintenanceLockPath: /run/vault-maintenance/maintenance.lock
   Deployment__CommitSha: ${VAULT_DEPLOYED_COMMIT_SHA:?Set the immutable deployed commit SHA}
 
 services:
   dpkeys-init:
     image: alpine:3.22
     user: "0:0"
-    command: ["sh", "-c", "chown -R 1654:1654 /keys /files && chmod 700 /keys /files"]
+    command: ["sh", "-c", "chown -R 1654:1654 /keys && chmod 700 /keys && mkdir -p /files/staging /files/objects && chown 1654:1654 /files /files/staging /files/objects && chmod 700 /files /files/staging /files/objects && mkdir -p /maintenance && chown 1654:0 /maintenance && chmod 770 /maintenance && touch /maintenance/maintenance.lock && chown 1654:0 /maintenance/maintenance.lock && chmod 660 /maintenance/maintenance.lock"]
     volumes:
       - vault_data_protection_keys:/keys
       - vault_file_data:/files
+      - vault_maintenance_lock:/maintenance
     network_mode: none
     restart: "no"
 
@@ -35,6 +38,7 @@ services:
     volumes:
       - vault_data_protection_keys:/home/app/.aspnet/DataProtection-Keys
       - vault_file_data:/var/lib/vault/files
+      - vault_maintenance_lock:/run/vault-maintenance
     networks:
       vault_backend:
         ipv4_address: ${VAULT_API_IP:-172.31.20.11}
@@ -89,7 +93,9 @@ volumes:
   vault_data_protection_keys:
     name: vault_data_protection_keys
   vault_file_data:
-    name: vault_file_data
+    name: ${VAULT_FILE_VOLUME_NAME:-vault_file_data}
+  vault_maintenance_lock:
+    name: vault_maintenance_lock
 
 networks:
   vault_backend:

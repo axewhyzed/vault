@@ -37,8 +37,8 @@ services:
         target: /data-protection-keys
         read_only: true
       - type: volume
-        source: backup_lock
-        target: /run/vault-backup
+        source: maintenance_lock
+        target: /run/vault-maintenance
     networks:
       - coolify
     read_only: true
@@ -66,8 +66,9 @@ volumes:
   vault_file_data:
     external: true
     name: ${VAULT_FILE_VOLUME_NAME:-vault_file_data}
-  backup_lock:
-    name: vault_backup_lock
+  maintenance_lock:
+    external: true
+    name: vault_maintenance_lock
   vault_data_protection_keys:
     external: true
     name: ${VAULT_DP_VOLUME_NAME:-vault_data_protection_keys}
