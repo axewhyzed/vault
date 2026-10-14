@@ -12,6 +12,8 @@ EXPOSE 8080
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /home/app/.aspnet/DataProtection-Keys /var/lib/vault/files \
+    && chown -R $APP_UID:$APP_UID /home/app /var/lib/vault
 COPY --from=build /app/publish .
 USER $APP_UID
 HEALTHCHECK --interval=15s --timeout=3s --start-period=15s --retries=3 CMD curl --fail --silent http://localhost:8080/health/ready || exit 1

@@ -36,7 +36,35 @@ var dataProtection = builder.Services.AddDataProtection()
     .SetApplicationName(builder.Configuration["DataProtection:ApplicationName"] ?? "Vault");
 var dataProtectionPath = builder.Configuration["DataProtection:KeysPath"];
 if (!string.IsNullOrWhiteSpace(dataProtectionPath))
-    dataProtection.PersistKeysToFileSystem(new DirectoryInfo(dataProtectionPath));
+{
+    var keysDir = new DirectoryInfo(dataProtectionPath);
+    var canWrite = false;
+    try
+    {
+        if (!keysDir.Exists)
+            keysDir.Create();
+        var testFile = Path.Combine(keysDir.FullName, $".write-probe-{Guid.NewGuid():N}");
+        File.WriteAllText(testFile, "probe");
+        File.Delete(testFile);
+        canWrite = true;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Warning: DataProtection directory '{dataProtectionPath}' is not writable ({ex.Message}). Using user profile fallback.");
+    }
+
+    if (canWrite)
+    {
+        dataProtection.PersistKeysToFileSystem(keysDir);
+    }
+    else
+    {
+        var fallbackDir = new DirectoryInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".aspnet", "DataProtection-Keys"));
+        if (!fallbackDir.Exists)
+            fallbackDir.Create();
+        dataProtection.PersistKeysToFileSystem(fallbackDir);
+    }
+}
 builder.Services.Configure<PasswordHasherOptions>(options => options.IterationCount = 210_000);
 builder.Services.AddSingleton<IPasswordHasher<VaultUser>, PasswordHasher<VaultUser>>();
 builder.Services.AddScoped<BootstrapAccountSeeder>();
@@ -88,9 +116,14 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
     options.KnownProxies.Clear();
     options.KnownIPNetworks.Clear();
+    options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse("10.0.0.0"), 8));
+    options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse("172.16.0.0"), 12));
+    options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse("192.168.0.0"), 16));
+    options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Loopback, 8));
+    options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.IPv6Loopback, 128));
     if (trustedProxyAddress is not null)
         options.KnownProxies.Add(trustedProxyAddress);
-    options.ForwardLimit = 1;
+    options.ForwardLimit = null;
 });
 
 var app = builder.Build();
@@ -108,7 +141,13 @@ app.UseForwardedHeaders();
 app.UseMiddleware<RequestCorrelationMiddleware>();
 app.UseExceptionHandler(handler => handler.Run(async context =>
 {
-    var status = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error is AntiforgeryValidationException
+    var exception = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+    if (exception is not null)
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogError(exception, "Unhandled exception on {RequestMethod} {RequestPath}", context.Request.Method, context.Request.Path);
+    }
+    var status = exception is AntiforgeryValidationException
         ? StatusCodes.Status403Forbidden : StatusCodes.Status500InternalServerError;
     await IdentityErrors.Create(context, status, status == StatusCodes.Status403Forbidden ? "csrf_validation_failed" : "internal_error",
         status == StatusCodes.Status403Forbidden ? "The CSRF token is missing or invalid." : "The request could not be completed.").ExecuteAsync(context);
