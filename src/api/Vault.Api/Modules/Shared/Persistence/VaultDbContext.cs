@@ -20,10 +20,13 @@ public sealed class VaultDbContext(DbContextOptions<VaultDbContext> options) : D
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Email).HasMaxLength(320).IsRequired();
             entity.Property(x => x.NormalizedEmail).HasMaxLength(320).IsRequired();
+            entity.Property(x => x.Username).HasMaxLength(32);
+            entity.Property(x => x.NormalizedUsername).HasMaxLength(32);
             entity.Property(x => x.PasswordHash).IsRequired();
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
             entity.Property(x => x.IsBootstrap).HasColumnName("is_bootstrap");
             entity.HasIndex(x => x.NormalizedEmail).IsUnique();
+            entity.HasIndex(x => x.NormalizedUsername).IsUnique().HasFilter("\"NormalizedUsername\" IS NOT NULL");
             entity.HasIndex(x => x.IsBootstrap).IsUnique().HasFilter("is_bootstrap = TRUE");
         });
 

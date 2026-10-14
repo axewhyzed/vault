@@ -40,10 +40,11 @@ Set the following in the Coolify API resource's environment/secret manager. Valu
 | `VAULT_DB_NAME` | `<dedicated-vault-database>` |
 | `VAULT_DB_USER` | `<dedicated-vault-role>` |
 | `VAULT_DB_PASSWORD` | `<secret>` |
-| `Database__ApplyMigrations` | Defaults to `true` (via `DATABASE_APPLY_MIGRATIONS`); applies pending EF Core migrations automatically on startup before accepting traffic |
+| `DATABASE_APPLY_MIGRATIONS` | `true` for the current Coolify deployment, or run the one-off migration profile before startup |
 | `Database__MigrationOnly` | `false` on the API service; the migration profile sets it to `true` |
-| `Bootstrap__Email` | `<owner-login-email>` |
-| `Bootstrap__Password` | `<unique-high-entropy-bootstrap-password>` |
+| `VAULT_BOOTSTRAP_EMAIL` | `<owner-login-email>` |
+| `VAULT_BOOTSTRAP_USERNAME` | `mihir0234` or another unique 3-32 character username |
+| `VAULT_BOOTSTRAP_PASSWORD` | `<unique-high-entropy-bootstrap-password>` |
 | `Security__AllowedOrigins__0` | `https://vault.axewhyzedlabs.co.in` |
 | `TrustedProxyIp` | The same address configured in `VAULT_WEB_IP` |
 | `VAULT_TRAEFIK_TRUSTED_IP` | `<verified-single-coolify-proxy-ip>` |
@@ -56,6 +57,25 @@ Set the following in the Coolify API resource's environment/secret manager. Valu
 Mount the dedicated `vault_data_protection_keys` persistent volume at `/home/app/.aspnet/DataProtection-Keys` in the API container, writable by its non-root runtime user. Preserve it across deploys and include it in the encrypted backup set so existing browser cookies remain decryptable after restore. It must not be shared with other apps. Do not publish the volume or put keys in the image. The Compose `dpkeys-init` one-shot initializes ownership of both this key volume and the currently empty `vault_file_data` volume for UID 1654 before API or migration startup.
 
 The frontend is same-origin; it needs no database credentials. Coolify routes the public domain `https://vault.axewhyzedlabs.co.in` directly to the `web` container's internal port `80`. The current production Nginx upstream is `vault-api-backend` on the internal network; do not configure a public API URL.
+
+## Update the bootstrap username or password
+
+The sign-in field accepts either the account email or its username. A normal bootstrap seed can create a username or backfill one when the existing bootstrap account has none; it never changes an existing password or silently replaces an existing username.
+
+To set the username to `mihir0234` and change the password on the live VPS:
+
+1. In the Vault resource's Coolify environment/secrets, set `VAULT_BOOTSTRAP_USERNAME=mihir0234` and replace `VAULT_BOOTSTRAP_PASSWORD` with a new unique password of at least 14 characters. Keep `VAULT_BOOTSTRAP_EMAIL` unchanged so the command targets the current bootstrap account. Do not put the password in a command, this repository, or the evidence log.
+2. Deploy the new immutable Vault commit and ensure its EF migration has completed. The current deployment may use its configured automatic migrations; otherwise run the one-off `api-migrate` service with the `migrate` profile. The migration adds nullable username columns and the normal seed fills a missing username without resetting the current password.
+3. Open a terminal for the running Vault API container in Coolify and run:
+
+   ```sh
+   dotnet /app/Vault.Api.dll --update-bootstrap-credentials
+   ```
+
+   The command reads the email, username, and new password from the container's Coolify environment. It updates the password hash, sets the username, and revokes active sessions. The password is not included in the terminal command.
+4. Sign in at `https://vault.axewhyzedlabs.co.in` using `mihir0234` and the new password. Existing sessions will need to sign in again.
+
+Usernames are case-insensitive and must contain 3-32 ASCII letters, digits, periods, underscores, or hyphens. If the command fails, check that the latest migration is applied, the bootstrap email matches the existing account, and the username is not already assigned.
 
 ## Deploy and smoke-check
 

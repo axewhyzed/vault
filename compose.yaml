@@ -34,6 +34,7 @@ services:
       ConnectionStrings__Vault: Host=postgres;Port=5432;Database=${POSTGRES_DB:-vault};Username=${POSTGRES_USER:-vault};Password=${POSTGRES_PASSWORD:?Run ./scripts/setup-local.ps1 to create .env first}
       Database__ApplyMigrations: "true"
       Bootstrap__Email: ${VAULT_BOOTSTRAP_EMAIL:-owner@vault.local}
+      Bootstrap__Username: ${VAULT_BOOTSTRAP_USERNAME:-owner}
       Bootstrap__Password: ${VAULT_BOOTSTRAP_PASSWORD:?Run ./scripts/setup-local.ps1 to create .env first}
       TrustedProxyIp: ${VAULT_PROXY_IP:-172.30.10.10}
       Security__AllowedOrigins__0: https://localhost:${VAULT_WEB_PORT:-8080}

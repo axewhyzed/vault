@@ -13,7 +13,9 @@ using Vault.Api.Modules.Transfers;
 using Vault.Api.Modules.Shared.Persistence;
 using Vault.Api;
 
-var builder = WebApplication.CreateBuilder(args);
+const string updateBootstrapCredentialsArgument = "--update-bootstrap-credentials";
+var updateBootstrapCredentials = args.Contains(updateBootstrapCredentialsArgument, StringComparer.Ordinal);
+var builder = WebApplication.CreateBuilder(updateBootstrapCredentials ? Array.Empty<string>() : args);
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
@@ -92,6 +94,15 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 
 var app = builder.Build();
+
+if (updateBootstrapCredentials)
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    await scope.ServiceProvider.GetRequiredService<BootstrapAccountSeeder>()
+        .UpdateBootstrapCredentialsAsync(CancellationToken.None);
+    app.Logger.LogInformation("Bootstrap credentials updated; all active account sessions were revoked.");
+    return;
+}
 
 app.UseForwardedHeaders();
 app.UseMiddleware<RequestCorrelationMiddleware>();

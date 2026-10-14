@@ -114,12 +114,20 @@ namespace Vault.Api.Modules.Shared.Persistence.Migrations
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)");
 
+                    b.Property<string>("NormalizedUsername")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("Status")
                         .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Username")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
@@ -131,6 +139,10 @@ namespace Vault.Api.Modules.Shared.Persistence.Migrations
 
                     b.HasIndex("NormalizedEmail")
                         .IsUnique();
+
+                    b.HasIndex("NormalizedUsername")
+                        .IsUnique()
+                        .HasFilter("\"NormalizedUsername\" IS NOT NULL");
 
                     b.ToTable("users", (string)null);
                 });
