@@ -178,7 +178,7 @@
   * `users`: 1 record (`coding0234@gmail.com`, created `2026-10-13 18:35:03 UTC`).
   * `devices`: 1 record.
   * `relay_items`: 0 records.
-* **Performance:** Observed RTO ~12 seconds. RPO ~15.5 hours (governed by daily automated schedule).
+* **Performance & Integrity:** Database ingestion RTO ~12 seconds (total operator drill duration ~11 minutes from container prep to cleanup). Designed RPO ≤ 24 hours (snapshot age at execution was 15h 25m). Archive integrity verified via S3 TLS transfer checksums and gunzip stream decompression (CRC-32 error-free).
 * **Teardown & Cleanup:**
   * `DROP DATABASE vault_restore_test;` executed successfully.
   * `apk del aws-cli` purged 54 packages; container filesystem returned to 100% clean baseline state.

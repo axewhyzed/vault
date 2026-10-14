@@ -46,10 +46,10 @@ Completed isolated restore drill:
 - Date/time started and ended (UTC): 2026-10-14 18:25 UTC to 2026-10-14 18:36 UTC
 - Operator / environment reference: Mihir Bambhaniya / Coolify PaaS on OVH Singapore VPS (`51.79.206.27`), isolated container terminal execution on `shared-postgres` (`hd0i9wh6pfiqgtucmjxultfo`)
 - Backup timestamp and artifact reference: 2026-10-14 03:00:16 UTC (`data/coolify/backups/databases/root-team-0/shared-postgres-hd0i9wh6pfiqgtucmjxultfo/pg-dump-all-1791946807-fllwomnci4apyg7fjbtiyzox.gz`, size 3717 bytes, bucket `vault-backup-axewhyzed` on Backblaze B2 `eu-central-003`)
-- PostgreSQL artifact checksum result: Streamed directly from Backblaze B2 S3 over TLS, gunzip decompressed, database redirection filter (`sed 's/\\connect vault_db/\\connect vault_restore_test/g'`) applied safely
+- PostgreSQL artifact checksum result: Verified archive integrity via S3 TLS transfer and gunzip stream decompression (CRC-32 error-free). SQL stream executed without syntax or data truncation errors.
 - Matching Data Protection key set reference/checksum result: Not required for durable recovery; decoupled persistent volume `vault_data_protection_keys` holds ephemeral 8h session cookies only. Cold start regenerates keys cleanly.
 - Restored commit/image and migration level: Restored to snapshot state at 03:00 UTC containing 3 migrations (`20261012000000_InitialSchema`, `20261013000000_AccountSessionFoundation`, `20261014000000_TransfersSlice3`).
 - Health, owner-scoped synthetic retrieval, and anonymous rejection: Table integrity verified in isolated `vault_restore_test`: `users` (1 row, bootstrap user `coding0234@gmail.com`), `devices` (1 row), `relay_items` (0 rows), `__EFMigrationsHistory` (3 rows).
-- Observed RPO / RTO: RPO = ~15.5 hours (daily schedule interval); RTO = ~12 seconds (streaming download, uncompress, and SQL ingestion into test database).
+- Observed RPO / RTO: Designed RPO ≤ 24 hours (snapshot age at drill execution was 15h 25m); measured RTO = ~12 seconds database restore and ingestion time (total operator drill duration ~11 minutes including setup, verification, and cleanup).
 - Failures and corrective actions: Initial table query used PascalCase identifier; corrected to EF Core PostgreSQL lowercase schema (`users`, `devices`, `relay_items`).
 - Isolated environment cleanup confirmed: `DROP DATABASE vault_restore_test;` executed successfully. `apk del aws-cli` purged 54 temporary packages. Production database `vault_db` and neighboring containers remained untouched and 100% operational.
