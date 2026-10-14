@@ -216,6 +216,26 @@ public sealed class IdentitySecurityTests
     }
 
     [Fact]
+    public async Task Bootstrap_seeder_with_sync_credentials_automatically_updates_password_on_startup()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var existingClient = host.CreateClient();
+        var csrf = await GetCsrfAsync(existingClient);
+        await LoginAsync(host, existingClient, TestApiHost.Email1, Password1, csrf.Token);
+
+        const string newPassword = "NewAutomatedVaultPassword_2026!";
+        await host.RunSeederAsync(TestApiHost.Email1, newPassword, TestApiHost.Username1, syncCredentials: true);
+
+        using var revokedSession = await existingClient.GetAsync("/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, revokedSession.StatusCode);
+
+        using var newClient = host.CreateClient();
+        var newCsrf = await GetCsrfAsync(newClient);
+        using var newPasswordLogin = await SendLoginAsync(newClient, TestApiHost.Username1, newPassword, newCsrf.Token, "192.0.2.30");
+        Assert.Equal(HttpStatusCode.OK, newPasswordLogin.StatusCode);
+    }
+
+    [Fact]
     public async Task Invalid_credentials_are_audited_and_sign_in_is_limited_to_five_per_client_ip()
     {
         using var host = await TestApiHost.CreateAsync();
@@ -416,7 +436,7 @@ public sealed class IdentitySecurityTests
                 .Select(value => value.PasswordHash).SingleAsync();
         }
 
-        public async Task RunSeederAsync(string email, string password, string? username = null)
+        public async Task RunSeederAsync(string email, string password, string? username = null, bool syncCredentials = false)
         {
             using var scope = _factory.Services.CreateScope();
             var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
@@ -425,7 +445,8 @@ public sealed class IdentitySecurityTests
             {
                 ["Bootstrap:Email"] = email,
                 ["Bootstrap:Password"] = password,
-                ["Bootstrap:Username"] = username
+                ["Bootstrap:Username"] = username,
+                ["Bootstrap:SyncCredentials"] = syncCredentials ? "true" : "false"
             }).Build();
             await new BootstrapAccountSeeder(database, hasher, configuration).SeedAsync(CancellationToken.None);
         }

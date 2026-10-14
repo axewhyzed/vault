@@ -8,6 +8,7 @@ x-api-environment: &api-environment
   Bootstrap__Email: ${VAULT_BOOTSTRAP_EMAIL:?Set the Vault bootstrap account email}
   Bootstrap__Username: ${VAULT_BOOTSTRAP_USERNAME:-mihir0234}
   Bootstrap__Password: ${VAULT_BOOTSTRAP_PASSWORD:?Set the Vault bootstrap account password}
+  Bootstrap__SyncCredentials: "${VAULT_BOOTSTRAP_SYNC_CREDENTIALS:-true}"
   TrustedProxyIp: ${VAULT_WEB_IP:-172.31.20.10}
   Security__AllowedOrigins__0: https://${VAULT_DOMAIN:?Set the public domain for Vault}
   DataProtection__ApplicationName: Vault

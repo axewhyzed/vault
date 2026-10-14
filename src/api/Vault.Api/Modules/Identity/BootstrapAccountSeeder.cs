@@ -25,6 +25,21 @@ public sealed class BootstrapAccountSeeder(VaultDbContext database, IPasswordHas
             if (!string.Equals(bootstrap.NormalizedEmail, normalizedEmail, StringComparison.Ordinal))
                 throw new InvalidOperationException("The configured bootstrap email differs from the existing bootstrap account. Bootstrap email cannot be changed by reseeding.");
 
+            var syncRequested = string.Equals(configuration["Bootstrap:SyncCredentials"], "true", StringComparison.OrdinalIgnoreCase);
+            if (syncRequested)
+            {
+                var usernameTarget = username ?? bootstrap.Username;
+                var normalizedTarget = usernameTarget?.ToUpperInvariant();
+                var usernameMismatch = normalizedTarget is not null && !string.Equals(bootstrap.NormalizedUsername, normalizedTarget, StringComparison.Ordinal);
+                var passwordMismatch = hasher.VerifyHashedPassword(bootstrap, bootstrap.PasswordHash, password) == PasswordVerificationResult.Failed;
+
+                if (usernameMismatch || passwordMismatch)
+                {
+                    await UpdateBootstrapCredentialsAsync(cancellationToken);
+                    return;
+                }
+            }
+
             if (username is null)
                 return;
 
@@ -36,8 +51,6 @@ public sealed class BootstrapAccountSeeder(VaultDbContext database, IPasswordHas
                 bootstrap.NormalizedUsername = normalizedUsername;
                 await database.SaveChangesAsync(cancellationToken);
             }
-            // A changed deployment variable must not prevent the API from starting;
-            // changing an existing username requires the explicit admin command.
 
             return;
         }
@@ -64,18 +77,21 @@ public sealed class BootstrapAccountSeeder(VaultDbContext database, IPasswordHas
     public async Task UpdateBootstrapCredentialsAsync(CancellationToken cancellationToken)
     {
         var email = configuration["Bootstrap:Email"]?.Trim();
-        var username = NormalizeUsername(configuration["Bootstrap:Username"], required: true)!;
+        var configuredUsername = configuration["Bootstrap:Username"];
         var password = configuration["Bootstrap:Password"];
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrEmpty(password))
             throw new InvalidOperationException("Bootstrap:Email and Bootstrap:Password are required for the explicit credential update.");
         ValidatePassword(password);
 
         var normalizedEmail = email.ToUpperInvariant();
-        var normalizedUsername = username.ToUpperInvariant();
         var bootstrap = await database.Users.SingleOrDefaultAsync(user => user.IsBootstrap, cancellationToken)
             ?? throw new InvalidOperationException("No bootstrap account exists. Apply migrations and seed the account before updating credentials.");
         if (!string.Equals(bootstrap.NormalizedEmail, normalizedEmail, StringComparison.Ordinal))
             throw new InvalidOperationException("Bootstrap:Email does not match the existing bootstrap account.");
+
+        var usernameToUse = !string.IsNullOrWhiteSpace(configuredUsername) ? configuredUsername : bootstrap.Username;
+        var username = NormalizeUsername(usernameToUse, required: true)!;
+        var normalizedUsername = username.ToUpperInvariant();
 
         await EnsureUsernameAvailableAsync(normalizedUsername, bootstrap.Id, cancellationToken);
 
