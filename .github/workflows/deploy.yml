@@ -3,10 +3,15 @@ name: build-publish
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - 'android/**'
-      - '.github/workflows/android.yml'
-      - 'scripts/test-android.ps1'
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - '!web/**.md'
+      - 'infra/**'
+      - '!infra/**.md'
+      - 'tests/**'
+      - 'compose*.yaml'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 concurrency:

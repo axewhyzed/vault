@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'android/**'
+      - '!android/**.md'
       - '.github/workflows/android.yml'
     tags:
       - 'v*'
@@ -12,6 +13,7 @@ on:
     branches: [main]
     paths:
       - 'android/**'
+      - '!android/**.md'
       - '.github/workflows/android.yml'
   workflow_dispatch:
     inputs:
