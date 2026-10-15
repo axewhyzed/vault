@@ -22,6 +22,19 @@ coverage/
 **/.vite/
 npm-debug.log*
 
+# Android / Gradle local build output
+.gradle/
+**/.gradle/
+**/build/
+local.properties
+**/local.properties
+.cxx/
+**/.cxx/
+.externalNativeBuild/
+**/.externalNativeBuild/
+captures/
+**/captures/
+
 # Editor and OS files
 .vs/
 .idea/

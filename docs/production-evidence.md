@@ -1,6 +1,6 @@
 # Production evidence
 
-Production evidence is owner-maintained. Repository code and local tests are not evidence that a VPS deployment, internet exposure, backup, restore, or real-use gate has passed. No Slice 5 rollout action was performed by this change.
+Production evidence is owner-maintained. Repository code and local tests are not evidence that a VPS deployment, internet exposure, backup, restore, or real-use gate has passed. This change records no VPS rollout, production file-volume backup/restore, or physical-device acceptance.
 
 ## Current status
 
@@ -11,6 +11,7 @@ Production evidence is owner-maintained. Repository code and local tests are not
 | Isolated production restore | Pending | Matching recovery set restored into disposable isolated DB and file volume; validate migrations and synthetic file hash |
 | D5 before real use | Pending | Sign-in rate limiting, item/file quotas, backup, and isolated restore verified before real content |
 | Internet phone/PC flow | Pending | Owner-run browser checks on real devices over the internet |
+| Slice 6 physical Android acceptance | Pending | Complete the [Slice 6 physical-device matrix](slice6-verification.md) on real hardware; local build/lint is not acceptance |
 | MVP exit gate and six-week product gate | Not established | Complete the Slice 6/7 and recovery/security criteria in the source plan |
 
 The repository provides a synthetic local backup/restore test. It creates a local encrypted Restic repository and verifies a synthetic PostgreSQL row, synthetic file bytes, and synthetic Data Protection key. It does not use production volumes or credentials and does not satisfy the production backup or restore rows above.

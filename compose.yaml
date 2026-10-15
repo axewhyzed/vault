@@ -42,6 +42,7 @@ services:
       TrustedProxyIp: ${VAULT_PROXY_IP:-172.30.10.10}
       Security__AllowedOrigins__0: https://localhost:${VAULT_WEB_PORT:-8080}
       Security__AllowedOrigins__1: ${VAULT_LAN_ORIGIN:-}
+      Security__ServerOrigin: ${VAULT_SERVER_ORIGIN:-https://localhost:${VAULT_WEB_PORT:-8080}}
       DataProtection__ApplicationName: Vault
       DataProtection__KeysPath: /home/app/.aspnet/DataProtection-Keys
       Storage__FilesPath: /var/lib/vault/files

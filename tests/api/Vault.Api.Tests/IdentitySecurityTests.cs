@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
@@ -36,6 +38,17 @@ public sealed class IdentitySecurityTests
         Assert.Equal("3.1.1", document.RootElement.GetProperty("openapi").GetString());
         var paths = document.RootElement.GetProperty("paths");
         Assert.True(paths.TryGetProperty("/api/v1/auth/login", out _));
+        Assert.True(paths.TryGetProperty("/api/v1/devices/pairing-sessions", out var pairingPath));
+        Assert.True(paths.TryGetProperty("/api/v1/devices/pair", out var pairPath));
+        Assert.True(paths.TryGetProperty("/api/v1/auth/refresh", out var refreshPath));
+        Assert.True(paths.TryGetProperty("/api/v1/auth/sessions/revoke-all", out var revokeAllPath));
+        Assert.Contains("application/json", pairingPath.GetProperty("post").GetProperty("requestBody").GetProperty("content").EnumerateObject().Select(x => x.Name));
+        Assert.Contains("Idempotency-Key", pairPath.GetProperty("post").GetProperty("parameters").EnumerateArray().Select(x => x.GetProperty("name").GetString()));
+        Assert.False(pairPath.GetProperty("post").TryGetProperty("security", out _));
+        Assert.Contains("201", pairPath.GetProperty("post").GetProperty("responses").EnumerateObject().Select(x => x.Name));
+        Assert.Contains("200", refreshPath.GetProperty("post").GetProperty("responses").EnumerateObject().Select(x => x.Name));
+        AssertSecurityAlternatives(revokeAllPath.GetProperty("post"), "VaultCookie", "VaultBearer");
+        AssertSecurityAlternatives(pairingPath.GetProperty("post"), "VaultCookie");
         var scheme = document.RootElement.GetProperty("components").GetProperty("securitySchemes").GetProperty("VaultCookie");
         Assert.Equal("apiKey", scheme.GetProperty("type").GetString());
         Assert.Equal("cookie", scheme.GetProperty("in").GetString());
@@ -44,7 +57,7 @@ public sealed class IdentitySecurityTests
         Assert.Contains("X-CSRF-TOKEN", paths.GetProperty("/api/v1/auth/login").GetProperty("post").GetProperty("description").GetString());
 
         var textCreate = paths.GetProperty("/api/v1/items/text").GetProperty("post");
-        Assert.Contains("VaultCookie", textCreate.GetProperty("security").ToString());
+        AssertSecurityAlternatives(textCreate, "VaultCookie", "VaultBearer");
         Assert.Contains("Idempotency-Key", textCreate.GetProperty("parameters").EnumerateArray().Select(x => x.GetProperty("name").GetString()));
         Assert.Contains("201", textCreate.GetProperty("responses").EnumerateObject().Select(x => x.Name));
         Assert.Contains("409", textCreate.GetProperty("responses").EnumerateObject().Select(x => x.Name));
@@ -59,6 +72,20 @@ public sealed class IdentitySecurityTests
         using var logoutRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout");
         logoutRequest.Headers.Add("Origin", Origin);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(logoutRequest)).StatusCode);
+    }
+
+    private static void AssertSecurityAlternatives(JsonElement operation, params string[] expectedSchemes)
+    {
+        var alternatives = operation.GetProperty("security").EnumerateArray().ToArray();
+        Assert.Equal(expectedSchemes.Length, alternatives.Length);
+        var actualSchemes = alternatives.Select(requirement =>
+        {
+            var schemes = requirement.EnumerateObject().Select(property => property.Name).ToArray();
+            Assert.Single(schemes);
+            Assert.Empty(requirement.GetProperty(schemes[0]).EnumerateArray());
+            return schemes[0];
+        }).OrderBy(value => value, StringComparer.Ordinal).ToArray();
+        Assert.Equal(expectedSchemes.OrderBy(value => value, StringComparer.Ordinal), actualSchemes);
     }
 
     [Fact]
@@ -196,11 +223,20 @@ public sealed class IdentitySecurityTests
         using var existingClient = host.CreateClient();
         var firstCsrf = await GetCsrfAsync(existingClient);
         _ = await LoginAsync(host, existingClient, TestApiHost.Email1, Password1, firstCsrf.Token);
+        firstCsrf = await GetCsrfAsync(existingClient);
+        var usedPairing = await CreatePairingAsync(existingClient, firstCsrf.Token);
+        using var androidClient = host.CreateClient();
+        var androidTokens = await PairAsync(androidClient, usedPairing, Guid.NewGuid());
+        var pendingPairing = await CreatePairingAsync(existingClient, firstCsrf.Token);
 
         await host.UpdateBootstrapCredentialsAsync(TestApiHost.Email1, TestApiHost.Username1, UpdatedPassword);
 
         using var revokedSession = await existingClient.GetAsync("/api/v1/auth/me");
         Assert.Equal(HttpStatusCode.Unauthorized, revokedSession.StatusCode);
+        using var revokedAndroid = await SendBearerAsync(androidClient, androidTokens.AccessToken, "/api/v1/items");
+        Assert.Equal(HttpStatusCode.Unauthorized, revokedAndroid.StatusCode);
+        using var pendingPairingRejected = await PairAsyncResponse(androidClient, pendingPairing, Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.Unauthorized, pendingPairingRejected.StatusCode);
 
         using var oldPasswordClient = host.CreateClient();
         var oldPasswordCsrf = await GetCsrfAsync(oldPasswordClient);
@@ -291,6 +327,189 @@ public sealed class IdentitySecurityTests
         Assert.NotNull(limited.Headers.RetryAfter);
     }
 
+    [Fact]
+    public async Task Android_pairing_is_single_use_and_bearer_tokens_authorize_transfers()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var web = host.CreateClient();
+        var csrf = await GetCsrfAsync(web);
+        await LoginAsync(host, web, TestApiHost.Email1, Password1, csrf.Token);
+        csrf = await GetCsrfAsync(web);
+        var pairing = await CreatePairingAsync(web, csrf.Token);
+        Assert.Equal("https://vault.example.test", pairing.ServerOrigin);
+        Assert.Matches("^[A-Za-z0-9_-]{43}$", pairing.PairingSecret);
+        Assert.Equal(DateTimeKind.Utc, pairing.ExpiresAt.Kind);
+        Assert.Equal(10, (int)Math.Round((pairing.ExpiresAt - DateTime.UtcNow).TotalMinutes));
+
+        using var mobile = host.CreateClient();
+        var pairKey = Guid.NewGuid();
+        var tokens = await PairAsync(mobile, pairing, pairKey);
+        Assert.StartsWith("va1_", tokens.AccessToken);
+        Assert.StartsWith("vr1_", tokens.RefreshToken);
+        Assert.NotEqual(tokens.AccessToken, await host.GetStoredTokenHashAsync(tokens.AccessToken));
+        Assert.Equal(Hash(tokens.AccessToken), await host.GetStoredTokenHashAsync(tokens.AccessToken));
+
+        using var transfer = new HttpRequestMessage(HttpMethod.Post, "/api/v1/items/text") { Content = JsonContent.Create(new { text = "from android" }) };
+        transfer.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+        transfer.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString("D"));
+        using var created = await mobile.SendAsync(transfer);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        using var revokeAll = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/sessions/revoke-all") { Content = JsonContent.Create(new { }) };
+        revokeAll.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+        using var bearerRevoked = await mobile.SendAsync(revokeAll);
+        Assert.Equal(HttpStatusCode.NoContent, bearerRevoked.StatusCode);
+
+        using var replay = await PairAsyncResponse(mobile, pairing, pairKey);
+        Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
+        using var replayBody = JsonDocument.Parse(await replay.Content.ReadAsStringAsync());
+        Assert.Equal("pairing_consumed", replayBody.RootElement.GetProperty("code").GetString());
+
+        using var ambientPair = new HttpRequestMessage(HttpMethod.Post, "/api/v1/devices/pair")
+        {
+            Content = JsonContent.Create(new { pairingSessionId = pairing.PairingSessionId, pairingSecret = pairing.PairingSecret, deviceName = "Android phone" })
+        };
+        ambientPair.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString("D"));
+        ambientPair.Headers.Add("Cookie", "ambient=1");
+        using var ambientPairResponse = await mobile.SendAsync(ambientPair);
+        Assert.Equal(HttpStatusCode.BadRequest, ambientPairResponse.StatusCode);
+
+        using var mixed = new HttpRequestMessage(HttpMethod.Get, "/api/v1/items");
+        mixed.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+        mixed.Headers.Add("Cookie", "ambient=1");
+        using var rejected = await mobile.SendAsync(mixed);
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        var audit = await host.GetAuditTextAsync();
+        Assert.DoesNotContain(pairing.PairingSecret, audit, StringComparison.Ordinal);
+        Assert.DoesNotContain(tokens.AccessToken, audit, StringComparison.Ordinal);
+        Assert.DoesNotContain(tokens.RefreshToken, audit, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Pairing_expiry_and_concurrent_redemption_fail_closed()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var web = host.CreateClient();
+        var csrf = await GetCsrfAsync(web);
+        await LoginAsync(host, web, TestApiHost.Email1, Password1, csrf.Token);
+        csrf = await GetCsrfAsync(web);
+        var expiredPairing = await CreatePairingAsync(web, csrf.Token);
+        await host.ExpirePairingSessionAsync(expiredPairing.PairingSessionId);
+        using var mobile = host.CreateClient();
+        using var expired = await PairAsyncResponse(mobile, expiredPairing, Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.Unauthorized, expired.StatusCode);
+
+        var concurrentPairing = await CreatePairingAsync(web, csrf.Token);
+        using var clientA = host.CreateClient();
+        using var clientB = host.CreateClient();
+        var attempts = await Task.WhenAll(
+            PairAsyncResponse(clientA, concurrentPairing, Guid.NewGuid()),
+            PairAsyncResponse(clientB, concurrentPairing, Guid.NewGuid()));
+        Assert.Single(attempts, response => response.StatusCode == HttpStatusCode.Created);
+        Assert.All(attempts.Where(response => response.StatusCode != HttpStatusCode.Created), response => Assert.Equal(HttpStatusCode.Conflict, response.StatusCode));
+        foreach (var response in attempts) response.Dispose();
+        Assert.Equal(1, await host.GetAndroidSessionCountAsync(TestApiHost.Email1));
+    }
+
+    [Fact]
+    public async Task Pairing_session_creation_is_limited_and_rate_limited_attempts_are_audited()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var web = host.CreateClient();
+        var csrf = await GetCsrfAsync(web);
+        await LoginAsync(host, web, TestApiHost.Email1, Password1, csrf.Token);
+        csrf = await GetCsrfAsync(web);
+        for (var i = 0; i < 5; i++) _ = await CreatePairingAsync(web, csrf.Token);
+
+        using var limitedRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/devices/pairing-sessions") { Content = JsonContent.Create(new { }) };
+        limitedRequest.Headers.Add("Origin", Origin);
+        limitedRequest.Headers.Add("X-CSRF-TOKEN", csrf.Token);
+        using var limited = await web.SendAsync(limitedRequest);
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.NotNull(limited.Headers.RetryAfter);
+        Assert.Contains("device_pairing_rate_limited", await host.GetAuditEventTypesAsync());
+    }
+
+    [Fact]
+    public async Task Pairing_redemption_is_limited_per_ip_with_retry_after()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var client = host.CreateClient();
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            using var request = NewPairRequest(Guid.NewGuid(), Guid.NewGuid(), new string('a', 43));
+            using var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+        using var limitedRequest = NewPairRequest(Guid.NewGuid(), Guid.NewGuid(), new string('a', 43));
+        using var limited = await client.SendAsync(limitedRequest);
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.NotNull(limited.Headers.RetryAfter);
+        Assert.Contains("device_pairing_rate_limited", await host.GetAuditEventTypesAsync());
+    }
+
+    [Fact]
+    public async Task Expired_access_token_is_rejected_before_item_access()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var web = host.CreateClient();
+        var csrf = await GetCsrfAsync(web);
+        await LoginAsync(host, web, TestApiHost.Email1, Password1, csrf.Token);
+        csrf = await GetCsrfAsync(web);
+        var pairing = await CreatePairingAsync(web, csrf.Token);
+        using var mobile = host.CreateClient();
+        var tokens = await PairAsync(mobile, pairing, Guid.NewGuid());
+        await host.ExpireAccessTokenAsync(tokens.AccessToken);
+        using var expired = await SendBearerAsync(mobile, tokens.AccessToken, "/api/v1/items");
+        Assert.Equal(HttpStatusCode.Unauthorized, expired.StatusCode);
+    }
+
+    [Fact]
+    public async Task Refresh_rotates_tokens_and_replay_revokes_android_session_and_revoke_all_cuts_off_both_clients()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var web = host.CreateClient();
+        var csrf = await GetCsrfAsync(web);
+        await LoginAsync(host, web, TestApiHost.Email1, Password1, csrf.Token);
+        csrf = await GetCsrfAsync(web);
+        var pairing = await CreatePairingAsync(web, csrf.Token);
+        using var mobile = host.CreateClient();
+        var original = await PairAsync(mobile, pairing, Guid.NewGuid());
+
+        using var refreshResponse = await mobile.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = original.RefreshToken });
+        Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
+        var rotated = (await refreshResponse.Content.ReadFromJsonAsync<TokenResponse>())!;
+        Assert.NotEqual(original.AccessToken, rotated.AccessToken);
+        Assert.NotEqual(original.RefreshToken, rotated.RefreshToken);
+        Assert.Equal(original.RefreshTokenExpiresAt, rotated.RefreshTokenExpiresAt);
+        using var ambientRefresh = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh") { Content = JsonContent.Create(new { refreshToken = rotated.RefreshToken }) };
+        ambientRefresh.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", rotated.AccessToken);
+        using var ambientRefreshResponse = await mobile.SendAsync(ambientRefresh);
+        Assert.Equal(HttpStatusCode.BadRequest, ambientRefreshResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendBearerAsync(mobile, original.AccessToken, "/api/v1/items")).StatusCode);
+
+        using var reused = await mobile.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = original.RefreshToken });
+        Assert.Equal(HttpStatusCode.Unauthorized, reused.StatusCode);
+        using var afterReuse = await SendBearerAsync(mobile, rotated.AccessToken, "/api/v1/items");
+        Assert.Equal(HttpStatusCode.Unauthorized, afterReuse.StatusCode);
+
+        var nextCsrf = await GetCsrfAsync(web);
+        var nextPair = await CreatePairingAsync(web, nextCsrf.Token);
+        using var secondMobile = host.CreateClient();
+        var active = await PairAsync(secondMobile, nextPair, Guid.NewGuid());
+        var revokeCsrf = await GetCsrfAsync(web);
+        using var revoke = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/sessions/revoke-all") { Content = JsonContent.Create(new { }) };
+        revoke.Headers.Add("Origin", Origin);
+        revoke.Headers.Add("X-CSRF-TOKEN", revokeCsrf.Token);
+        using var revoked = await web.SendAsync(revoke);
+        Assert.Equal(HttpStatusCode.NoContent, revoked.StatusCode);
+        Assert.Contains(revoked.Headers.GetValues("Set-Cookie"), value => value.StartsWith("__Host-Vault.Auth=", StringComparison.Ordinal));
+        using var cookieCutoff = await web.GetAsync("/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, cookieCutoff.StatusCode);
+        using var bearerCutoff = await SendBearerAsync(secondMobile, active.AccessToken, "/api/v1/items");
+        Assert.Equal(HttpStatusCode.Unauthorized, bearerCutoff.StatusCode);
+    }
+
     private static HttpRequestMessage NewLoginRequest(string email, string password, string token, string origin)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/login")
@@ -340,8 +559,59 @@ public sealed class IdentitySecurityTests
         return await client.SendAsync(request);
     }
 
+    private static async Task<PairingResponse> CreatePairingAsync(HttpClient client, string csrf)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/devices/pairing-sessions") { Content = JsonContent.Create(new { }) };
+        request.Headers.Host = "attacker-controlled.example";
+        request.Headers.Add("Origin", Origin);
+        request.Headers.Add("X-CSRF-TOKEN", csrf);
+        using var response = await client.SendAsync(request);
+        Assert.True(response.StatusCode == HttpStatusCode.Created, $"Pairing session creation returned {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        return (await response.Content.ReadFromJsonAsync<PairingResponse>())!;
+    }
+
+    private static async Task<TokenResponse> PairAsync(HttpClient client, PairingResponse pairing, Guid key)
+    {
+        using var response = await PairAsyncResponse(client, pairing, key);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        return (await response.Content.ReadFromJsonAsync<TokenResponse>())!;
+    }
+
+    private static Task<HttpResponseMessage> PairAsyncResponse(HttpClient client, PairingResponse pairing, Guid key)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/devices/pair")
+        {
+            Content = JsonContent.Create(new { pairingSessionId = pairing.PairingSessionId, pairingSecret = pairing.PairingSecret, deviceName = "Android phone" })
+        };
+        request.Headers.Add("Idempotency-Key", key.ToString("D"));
+        return client.SendAsync(request);
+    }
+
+    private static HttpRequestMessage NewPairRequest(Guid sessionId, Guid idempotencyKey, string secret)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/devices/pair")
+        {
+            Content = JsonContent.Create(new { pairingSessionId = sessionId, pairingSecret = secret, deviceName = "Android phone" })
+        };
+        request.Headers.Add("Idempotency-Key", idempotencyKey.ToString("D"));
+        return request;
+    }
+
+    private static async Task<HttpResponseMessage> SendBearerAsync(HttpClient client, string token, string path)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, path);
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        return await client.SendAsync(request);
+    }
+
+    private static string Hash(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
+
     private sealed record CsrfResponse(string Token, string HeaderName);
     private sealed record AccountResponse(Guid UserId, string Email, Guid DeviceId);
+    private sealed record PairingResponse(Guid PairingSessionId, string PairingSecret, string ServerOrigin, DateTime ExpiresAt);
+    private sealed record TokenResponse(string TokenType, string AccessToken, DateTime AccessTokenExpiresAt, string RefreshToken, DateTime RefreshTokenExpiresAt, Guid UserId, Guid DeviceId);
 
     private sealed class TestApiHost : IDisposable
     {
@@ -370,6 +640,7 @@ public sealed class IdentitySecurityTests
                     ["Database:ApplyMigrations"] = "false",
                     ["TrustedProxyIp"] = "127.0.0.1",
                     ["Security:AllowedOrigins:0"] = Origin
+                    ,["Security:ServerOrigin"] = "https://vault.example.test"
                 }));
                 builder.ConfigureServices(services =>
                 {
@@ -452,6 +723,39 @@ public sealed class IdentitySecurityTests
             var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
             return await database.Users.Where(value => value.NormalizedEmail == email.ToUpperInvariant())
                 .Select(value => value.PasswordHash).SingleAsync();
+        }
+
+        public async Task<string> GetStoredTokenHashAsync(string token)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            return await database.DeviceCredentials.Where(value => value.TokenHash == Hash(token)).Select(value => value.TokenHash).SingleAsync();
+        }
+
+        public async Task ExpirePairingSessionAsync(Guid id)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            var row = await database.DevicePairingSessions.SingleAsync(value => value.Id == id);
+            row.ExpiresAt = DateTime.UtcNow.AddMinutes(-1);
+            await database.SaveChangesAsync();
+        }
+
+        public async Task<int> GetAndroidSessionCountAsync(string email)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            var userId = await database.Users.Where(user => user.Email == email).Select(user => user.Id).SingleAsync();
+            return await database.AndroidSessions.CountAsync(session => session.UserId == userId);
+        }
+
+        public async Task ExpireAccessTokenAsync(string token)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            var credential = await database.DeviceCredentials.SingleAsync(value => value.TokenHash == Hash(token));
+            credential.ExpiresAt = DateTime.UtcNow.AddMinutes(-1);
+            await database.SaveChangesAsync();
         }
 
         public async Task RunSeederAsync(string email, string password, string? username = null, bool syncCredentials = false)

@@ -75,6 +75,7 @@ builder.Services.Configure<PasswordHasherOptions>(options => options.IterationCo
 builder.Services.AddSingleton<IPasswordHasher<VaultUser>, PasswordHasher<VaultUser>>();
 builder.Services.AddScoped<BootstrapAccountSeeder>();
 builder.Services.AddSingleton<CredentialAttemptLimiter>();
+builder.Services.AddSingleton<DevicePairingRateLimiter>();
 builder.Services.AddAntiforgery(options =>
 {
     options.HeaderName = "X-CSRF-TOKEN";
@@ -170,11 +171,13 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
         status == StatusCodes.Status403Forbidden ? "The CSRF token is missing or invalid." : "The request could not be completed.").ExecuteAsync(context);
 }));
 app.UseAuthentication();
+app.UseMiddleware<BearerSessionMiddleware>();
 app.UseMiddleware<BrowserRequestSecurityMiddleware>();
 app.UseAuthorization();
 app.MapOpenApi("/api/openapi/{documentName}.json").AllowAnonymous();
 app.MapMonitoringEndpoints();
 app.MapIdentityEndpoints();
+app.MapDeviceAuthEndpoints();
 app.MapTransferEndpoints();
 app.MapFileEndpoints();
 

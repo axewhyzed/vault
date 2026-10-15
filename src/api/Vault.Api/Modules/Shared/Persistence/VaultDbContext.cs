@@ -12,6 +12,9 @@ public sealed class VaultDbContext(DbContextOptions<VaultDbContext> options) : D
     public DbSet<RelayItem> Items => Set<RelayItem>();
     public DbSet<ItemIdempotencyRecord> ItemIdempotencyRecords => Set<ItemIdempotencyRecord>();
     public DbSet<UploadSession> UploadSessions => Set<UploadSession>();
+    public DbSet<AndroidSession> AndroidSessions => Set<AndroidSession>();
+    public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
+    public DbSet<DevicePairingSession> DevicePairingSessions => Set<DevicePairingSession>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,6 +52,34 @@ public sealed class VaultDbContext(DbContextOptions<VaultDbContext> options) : D
             entity.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
             entity.HasIndex(x => new { x.OccurredAt, x.Id });
             entity.HasIndex(x => new { x.ActorUserId, x.OccurredAt, x.Id });
+        });
+
+        modelBuilder.Entity<AndroidSession>(entity =>
+        {
+            entity.ToTable("android_sessions");
+            entity.HasKey(x => x.Id);
+            entity.HasOne<VaultUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<VaultDevice>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(x => new { x.UserId, x.RevokedAt });
+        });
+        modelBuilder.Entity<DeviceCredential>(entity =>
+        {
+            entity.ToTable("device_credentials");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.TokenType).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            entity.HasOne<AndroidSession>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => new { x.SessionId, x.TokenType, x.RevokedAt });
+        });
+        modelBuilder.Entity<DevicePairingSession>(entity =>
+        {
+            entity.ToTable("device_pairing_sessions");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SecretHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.PairingRequestFingerprint).HasMaxLength(64);
+            entity.HasOne<VaultUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(x => new { x.UserId, x.ExpiresAt });
         });
 
         modelBuilder.Entity<RelayItem>(entity =>

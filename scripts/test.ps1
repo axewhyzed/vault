@@ -155,6 +155,11 @@ try {
         throw 'A fresh PostgreSQL database is missing Slice 3/5 transfer tables.'
     }
 
+    $deviceAuthTables = & docker compose -p $projectName -f compose.yaml -f compose.test.yaml exec -T postgres psql -U vault_test -d vault_test -Atc "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('android_sessions', 'device_credentials', 'device_pairing_sessions');"
+    if ($LASTEXITCODE -ne 0 -or [int]($deviceAuthTables -join '').Trim() -ne 3) {
+        throw 'A fresh PostgreSQL database is missing Slice 6 Android session and pairing tables.'
+    }
+
     $bootstrapCount = & docker compose -p $projectName -f compose.yaml -f compose.test.yaml exec -T postgres psql -U vault_test -d vault_test -Atc 'SELECT COUNT(*) FROM users WHERE is_bootstrap = TRUE;'
     if ($LASTEXITCODE -ne 0 -or [int]($bootstrapCount -join '').Trim() -ne 1) {
         throw 'A fresh database must contain exactly one bootstrap account.'
@@ -417,6 +422,91 @@ FROM generate_series(1, 9999);
     $activeCount = Invoke-TestPsql $activeCountSql -TuplesOnly
     if ([int]($activeCount -join '').Trim() -ne 10000) { throw 'PostgreSQL quota race exceeded or underfilled the 10,000 active-item boundary.' }
 
+    # Pair an Android session, then race refresh against account-wide revocation on PostgreSQL.
+    $pairCsrfPath = Join-Path $temporaryRoot 'pairing-csrf.json'
+    $status = Invoke-Curl @('--cacert', $certPath, '--cookie', $jarPath, '--cookie-jar', $jarPath, $csrfUrl) $pairCsrfPath
+    Assert-Status $status 200 'Pairing session CSRF token' $pairCsrfPath
+    $pairCsrf = Get-Content -Raw -LiteralPath $pairCsrfPath | ConvertFrom-Json
+    $pairingRequestPath = Join-Path $temporaryRoot 'pairing-session-request.json'
+    [System.IO.File]::WriteAllText($pairingRequestPath, '{}', [System.Text.UTF8Encoding]::new($false))
+    $pairingResponsePath = Join-Path $temporaryRoot 'pairing-session-response.json'
+    $status = Invoke-Curl @('--cacert', $certPath, '--cookie', $jarPath, '--cookie-jar', $jarPath, '--header', "Origin: $origin", '--header', "$($pairCsrf.headerName): $($pairCsrf.token)", '--header', 'Content-Type: application/json', '--data-binary', "@$pairingRequestPath", "$baseUrl/api/v1/devices/pairing-sessions") $pairingResponsePath
+    Assert-Status $status 201 'Create Android pairing session' $pairingResponsePath
+    $pairing = Get-Content -Raw -LiteralPath $pairingResponsePath | ConvertFrom-Json
+    if ($pairing.serverOrigin -ne $origin -or $pairing.pairingSecret -notmatch '^[A-Za-z0-9_-]{43}$') { throw 'Pairing response did not use the configured origin or a 32-byte Base64url secret.' }
+
+    $pairRequestPath = Join-Path $temporaryRoot 'pair-request.json'
+    $pairResponsePath = Join-Path $temporaryRoot 'pair-response.json'
+    $pairPayload = @{ pairingSessionId = $pairing.pairingSessionId; pairingSecret = $pairing.pairingSecret; deviceName = 'Slice 6 PostgreSQL test device' } | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText($pairRequestPath, $pairPayload, [System.Text.UTF8Encoding]::new($false))
+    $pairKey = [guid]::NewGuid().ToString('D')
+    $status = Invoke-Curl @('--cacert', $certPath, '--header', "Idempotency-Key: $pairKey", '--header', 'Content-Type: application/json', '--data-binary', "@$pairRequestPath", "$baseUrl/api/v1/devices/pair") $pairResponsePath
+    Assert-Status $status 201 'Pair Android device against PostgreSQL' $pairResponsePath
+    $androidTokens = Get-Content -Raw -LiteralPath $pairResponsePath | ConvertFrom-Json
+    if (-not $androidTokens.accessToken.StartsWith('va1_') -or -not $androidTokens.refreshToken.StartsWith('vr1_')) { throw 'Pairing did not issue the expected token prefixes.' }
+
+    $refreshRequestPath = Join-Path $temporaryRoot 'refresh-race-request.json'
+    $refreshResponsePath = Join-Path $temporaryRoot 'refresh-race-response.json'
+    $revokeRequestPath = Join-Path $temporaryRoot 'revoke-race-request.json'
+    $revokeResponsePath = Join-Path $temporaryRoot 'revoke-race-response.json'
+    [System.IO.File]::WriteAllText($refreshRequestPath, (@{ refreshToken = $androidTokens.refreshToken } | ConvertTo-Json -Compress), [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText($revokeRequestPath, '{}', [System.Text.UTF8Encoding]::new($false))
+    $raceJobs = @()
+    $raceJobs += Start-Job -ArgumentList $certPath, $refreshRequestPath, $refreshResponsePath, "$baseUrl/api/v1/auth/refresh" -ScriptBlock {
+        param($cert, $requestFile, $responseFile, $url)
+        $statusText = & curl.exe --silent --show-error --output $responseFile --write-out '%{http_code}' --max-time 30 --cacert $cert --header 'Content-Type: application/json' --data-binary "@$requestFile" $url
+        if ($LASTEXITCODE -ne 0) { throw "Concurrent refresh curl failed with exit code $LASTEXITCODE" }
+        [pscustomobject]@{ Method = 'refresh'; Status = [int]$statusText; ResponsePath = $responseFile }
+    }
+    $raceJobs += Start-Job -ArgumentList $certPath, $revokeRequestPath, $revokeResponsePath, $androidTokens.accessToken, "$baseUrl/api/v1/auth/sessions/revoke-all" -ScriptBlock {
+        param($cert, $requestFile, $responseFile, $accessToken, $url)
+        $statusText = & curl.exe --silent --show-error --output $responseFile --write-out '%{http_code}' --max-time 30 --cacert $cert --header "Authorization: Bearer $accessToken" --header 'Content-Type: application/json' --data-binary "@$requestFile" $url
+        if ($LASTEXITCODE -ne 0) { throw "Concurrent revoke-all curl failed with exit code $LASTEXITCODE" }
+        [pscustomobject]@{ Method = 'revoke-all'; Status = [int]$statusText; ResponsePath = $responseFile }
+    }
+    try {
+        $null = Wait-Job -Job $raceJobs -Timeout 45
+        if ($raceJobs | Where-Object State -eq 'Running') { throw 'Concurrent Android refresh/revoke-all requests timed out.' }
+        $credentialRaceResults = @(Receive-Job -Job $raceJobs -ErrorAction Stop)
+    } finally { Remove-Job -Job $raceJobs -Force -ErrorAction SilentlyContinue }
+    $refreshRace = $credentialRaceResults | Where-Object Method -eq 'refresh' | Select-Object -First 1
+    $revokeRace = $credentialRaceResults | Where-Object Method -eq 'revoke-all' | Select-Object -First 1
+    if ($refreshRace.Status -notin @(200, 401) -or $revokeRace.Status -notin @(204, 401) -or @($credentialRaceResults | Where-Object { $_.Status -ge 500 }).Count -gt 0) {
+        throw "Concurrent refresh/revoke-all returned unexpected statuses: $($credentialRaceResults | ConvertTo-Json -Compress)"
+    }
+    $issuedDuringRace = if ($refreshRace.Status -eq 200) { Get-Content -Raw -LiteralPath $refreshResponsePath | ConvertFrom-Json } else { $null }
+    if ($revokeRace.Status -eq 401 -and $issuedDuringRace) {
+        $status = Invoke-Curl @('--cacert', $certPath, '--header', "Authorization: Bearer $($issuedDuringRace.accessToken)", '--header', 'Content-Type: application/json', '--data-binary', "@$revokeRequestPath", "$baseUrl/api/v1/auth/sessions/revoke-all") $bodyPath
+        Assert-Status $status 204 'Retry revoke-all with rotated Android access token' $bodyPath
+    } elseif ($revokeRace.Status -ne 204) {
+        throw 'Revoke-all was rejected without a successful concurrent refresh that supplied a replacement access token.'
+    }
+    foreach ($accessToken in @($androidTokens.accessToken, $issuedDuringRace.accessToken) | Where-Object { $_ }) {
+        $status = Invoke-Curl @('--cacert', $certPath, '--header', "Authorization: Bearer $accessToken", "$baseUrl/api/v1/items") $bodyPath
+        Assert-Status $status 401 'Android access token after refresh/revoke-all race' $bodyPath
+    }
+    foreach ($refreshToken in @($androidTokens.refreshToken, $issuedDuringRace.refreshToken) | Where-Object { $_ }) {
+        $checkRefreshPath = Join-Path $temporaryRoot 'refresh-after-revoke-request.json'
+        [System.IO.File]::WriteAllText($checkRefreshPath, (@{ refreshToken = $refreshToken } | ConvertTo-Json -Compress), [System.Text.UTF8Encoding]::new($false))
+        $status = Invoke-Curl @('--cacert', $certPath, '--header', 'Content-Type: application/json', '--data-binary', "@$checkRefreshPath", "$baseUrl/api/v1/auth/refresh") $bodyPath
+        Assert-Status $status 401 'Android refresh token after refresh/revoke-all race' $bodyPath
+    }
+    $activeCredentialSql = 'SELECT COUNT(*) FROM device_credentials c JOIN android_sessions s ON s."Id" = c."SessionId" WHERE s."UserId" = ''{0}'' AND (c."RevokedAt" IS NULL OR s."RevokedAt" IS NULL);' -f $login.userId
+    $activeCredentialCount = Invoke-TestPsql $activeCredentialSql -TuplesOnly
+    if ([int]($activeCredentialCount -join '').Trim() -ne 0) { throw 'Refresh/revoke-all race left an active Android credential or session in PostgreSQL.' }
+    $activeDeviceSql = 'SELECT COUNT(*) FROM devices WHERE "UserId" = ''{0}'' AND "RevokedAt" IS NULL;' -f $login.userId
+    $activeDeviceCount = Invoke-TestPsql $activeDeviceSql -TuplesOnly
+    if ([int]($activeDeviceCount -join '').Trim() -ne 0) { throw 'Refresh/revoke-all race left a web or Android device active in PostgreSQL.' }
+    # Revoke-all also closes the web cookie session, so sign in again before the logout smoke check.
+    $reauthCsrfPath = Join-Path $temporaryRoot 'reauth-csrf.json'
+    $status = Invoke-Curl @('--cacert', $certPath, '--cookie-jar', $jarPath, $csrfUrl) $reauthCsrfPath
+    Assert-Status $status 200 'CSRF token after account-wide revocation' $reauthCsrfPath
+    $reauthCsrf = Get-Content -Raw -LiteralPath $reauthCsrfPath | ConvertFrom-Json
+    $reauthBodyPath = Join-Path $temporaryRoot 'reauth-request.json'
+    [System.IO.File]::WriteAllText($reauthBodyPath, (@{ identifier = $testUsername; password = $testPassword } | ConvertTo-Json -Compress), [System.Text.UTF8Encoding]::new($false))
+    $status = Invoke-Curl @('--cacert', $certPath, '--cookie', $jarPath, '--cookie-jar', $jarPath, '--header', "Origin: $origin", '--header', "$($reauthCsrf.headerName): $($reauthCsrf.token)", '--header', 'Content-Type: application/json', '--data-binary', "@$reauthBodyPath", "$baseUrl/api/v1/auth/login") $bodyPath
+    Assert-Status $status 200 'Web sign-in after account-wide revocation' $bodyPath
+
     $status = Invoke-Curl @('--cacert', $certPath, '--cookie', $jarPath, '--cookie-jar', $jarPath, $csrfUrl) $bodyPath
     Assert-Status $status 200 'Authenticated CSRF refresh' $bodyPath
     $logoutCsrf = Get-Content -Raw -LiteralPath $bodyPath | ConvertFrom-Json
@@ -440,7 +530,7 @@ FROM generate_series(1, 9999);
         if ($LASTEXITCODE -ne 0) { throw 'Web lint failed.' }
     } finally { Pop-Location }
 
-    Write-Host 'Identity and Slice 5 checks passed: migrations including upload sessions; bootstrap and session security; text/URL flows; API tests for streamed file staging, checksum, idempotent completion, owner scope, and safe attachment download; web build/lint.'
+    Write-Host 'Identity and Slice 3/5/6 checks passed: Android pairing/bearer migrations; bootstrap and session security; PostgreSQL refresh/revoke-all concurrency; text, URL, and file flows; API tests; web build/lint.'
 }
 finally {
     if ($cleanupNeeded) {

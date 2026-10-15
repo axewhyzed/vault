@@ -22,6 +22,51 @@ namespace Vault.Api.Modules.Shared.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Vault.Api.Modules.Identity.AndroidSession", b =>
+                {
+                    b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+                    b.Property<DateTime>("CreatedAt").HasColumnType("timestamp with time zone");
+                    b.Property<Guid>("DeviceId").HasColumnType("uuid");
+                    b.Property<DateTime>("RefreshExpiresAt").HasColumnType("timestamp with time zone");
+                    b.Property<DateTime?>("RevokedAt").HasColumnType("timestamp with time zone");
+                    b.Property<Guid>("UserId").HasColumnType("uuid");
+                    b.HasKey("Id");
+                    b.HasIndex("DeviceId");
+                    b.HasIndex("UserId", "RevokedAt");
+                    b.ToTable("android_sessions", (string)null);
+                });
+
+            modelBuilder.Entity("Vault.Api.Modules.Identity.DeviceCredential", b =>
+                {
+                    b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+                    b.Property<DateTime>("CreatedAt").HasColumnType("timestamp with time zone");
+                    b.Property<DateTime>("ExpiresAt").HasColumnType("timestamp with time zone");
+                    b.Property<DateTime?>("RevokedAt").HasColumnType("timestamp with time zone");
+                    b.Property<Guid>("SessionId").HasColumnType("uuid");
+                    b.Property<string>("TokenHash").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)");
+                    b.Property<string>("TokenType").IsRequired().HasMaxLength(16).HasColumnType("character varying(16)");
+                    b.HasKey("Id");
+                    b.HasIndex("SessionId", "TokenType", "RevokedAt");
+                    b.HasIndex("TokenHash").IsUnique();
+                    b.ToTable("device_credentials", (string)null);
+                });
+
+            modelBuilder.Entity("Vault.Api.Modules.Identity.DevicePairingSession", b =>
+                {
+                    b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+                    b.Property<DateTime>("CreatedAt").HasColumnType("timestamp with time zone");
+                    b.Property<DateTime?>("ConsumedAt").HasColumnType("timestamp with time zone");
+                    b.Property<DateTime>("ExpiresAt").HasColumnType("timestamp with time zone");
+                    b.Property<Guid?>("PairingIdempotencyKey").HasColumnType("uuid");
+                    b.Property<string>("PairingRequestFingerprint").HasMaxLength(64).HasColumnType("character varying(64)");
+                    b.Property<DateTime?>("RevokedAt").HasColumnType("timestamp with time zone");
+                    b.Property<string>("SecretHash").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)");
+                    b.Property<Guid>("UserId").HasColumnType("uuid");
+                    b.HasKey("Id");
+                    b.HasIndex("UserId", "ExpiresAt");
+                    b.ToTable("device_pairing_sessions", (string)null);
+                });
+
             modelBuilder.Entity("Vault.Api.Modules.Identity.VaultAuditEvent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -89,6 +134,22 @@ namespace Vault.Api.Modules.Shared.Persistence.Migrations
                     b.HasIndex("UserId", "RevokedAt");
 
                     b.ToTable("devices", (string)null);
+                });
+
+            modelBuilder.Entity("Vault.Api.Modules.Identity.AndroidSession", b =>
+                {
+                    b.HasOne("Vault.Api.Modules.Identity.VaultDevice", null).WithMany().HasForeignKey("DeviceId").OnDelete(DeleteBehavior.Cascade).IsRequired();
+                    b.HasOne("Vault.Api.Modules.Identity.VaultUser", null).WithMany().HasForeignKey("UserId").OnDelete(DeleteBehavior.Cascade).IsRequired();
+                });
+
+            modelBuilder.Entity("Vault.Api.Modules.Identity.DeviceCredential", b =>
+                {
+                    b.HasOne("Vault.Api.Modules.Identity.AndroidSession", null).WithMany().HasForeignKey("SessionId").OnDelete(DeleteBehavior.Cascade).IsRequired();
+                });
+
+            modelBuilder.Entity("Vault.Api.Modules.Identity.DevicePairingSession", b =>
+                {
+                    b.HasOne("Vault.Api.Modules.Identity.VaultUser", null).WithMany().HasForeignKey("UserId").OnDelete(DeleteBehavior.Cascade).IsRequired();
                 });
 
             modelBuilder.Entity("Vault.Api.Modules.Identity.VaultUser", b =>

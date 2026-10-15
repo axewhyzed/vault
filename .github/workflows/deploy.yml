@@ -41,6 +41,25 @@ jobs:
           npm run build
           npm run lint
 
+      - name: Setup Java for Android
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: android/**/*.gradle*
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android SDK components
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Build, test, and lint Android client
+        run: |
+          chmod +x android/gradlew
+          android/gradlew --no-daemon --console=plain -p android assembleDebug testDebugUnitTest lintDebug
+
   build-and-push:
     needs: test
     runs-on: ubuntu-latest
