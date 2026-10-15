@@ -86,6 +86,8 @@ internal static class IdentityEndpoints
         }
 
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+        if (!await LockOwnerAsync(database, user.Id, cancellationToken))
+            return IdentityErrors.Create(context, StatusCodes.Status401Unauthorized, "unauthorized", "Authentication is required.");
         if (verification == PasswordVerificationResult.SuccessRehashNeeded)
             user.PasswordHash = hasher.HashPassword(user, request.Password);
 
@@ -124,21 +126,28 @@ internal static class IdentityEndpoints
         VaultDbContext database,
         CancellationToken cancellationToken)
     {
+        if (context.User.Identity?.AuthenticationType != Scheme)
+            return IdentityErrors.Create(context, StatusCodes.Status403Forbidden, "cookie_session_required", "Logout requires a browser session.");
         var userId = GetGuid(context.User, "userId");
         var deviceId = GetGuid(context.User, "deviceId");
-        var device = await database.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.UserId == userId, cancellationToken);
-        if (device is not null && device.RevokedAt is null)
+        await using (var transaction = await database.Database.BeginTransactionAsync(cancellationToken))
         {
-            await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
-            device.RevokedAt = DateTime.UtcNow;
-            database.AuditEvents.Add(new VaultAuditEvent
+            if (await LockOwnerAsync(database, userId, cancellationToken))
             {
-                EventType = "logout",
-                ActorUserId = userId,
-                ActorDeviceId = deviceId,
-                CorrelationId = context.TraceIdentifier
-            });
-            await database.SaveChangesAsync(cancellationToken);
+                var device = await database.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.UserId == userId, cancellationToken);
+                if (device is not null && device.RevokedAt is null)
+                {
+                    device.RevokedAt = DateTime.UtcNow;
+                    database.AuditEvents.Add(new VaultAuditEvent
+                    {
+                        EventType = "logout",
+                        ActorUserId = userId,
+                        ActorDeviceId = deviceId,
+                        CorrelationId = context.TraceIdentifier
+                    });
+                    await database.SaveChangesAsync(cancellationToken);
+                }
+            }
             await transaction.CommitAsync(cancellationToken);
         }
         await context.SignOutAsync(IdentityEndpoints.Scheme);
@@ -147,6 +156,10 @@ internal static class IdentityEndpoints
 
     internal static Guid GetGuid(ClaimsPrincipal principal, string claim) =>
         Guid.TryParse(principal.FindFirstValue(claim), out var value) ? value : Guid.Empty;
+
+    internal static async Task<bool> LockOwnerAsync(VaultDbContext database, Guid userId, CancellationToken cancellationToken) =>
+        userId != Guid.Empty && await database.Users.Where(user => user.Id == userId && user.Status == "active")
+            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.Status, user => user.Status), cancellationToken) == 1;
 
     internal sealed record LoginRequest(string Password, string? Identifier = null, string? Email = null, string? Username = null)
     {

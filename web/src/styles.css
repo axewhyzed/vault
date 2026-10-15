@@ -106,6 +106,36 @@ h1, h2, p { margin-top: 0; }
 .empty-state-note span { font-size: 13px; }
 
 .quota-card { margin: 22px 0 24px; padding: 14px 16px 12px; border: 1px solid #e0e1d9; border-radius: 5px; background: rgba(251, 250, 246, .72); }
+.account-actions { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(260px, .85fr); gap: 18px; margin: 22px 0 24px; }
+.account-actions > .send-card { min-width: 0; }
+.pairing-card, .revoke-card { padding: 20px; }
+.pairing-description { margin: -4px 0 14px; color: #777c72; font-size: 11px; line-height: 1.55; }
+.pairing-content { display: grid; justify-items: center; }
+.pairing-qr { width: fit-content; max-width: 100%; margin: 2px auto 12px; border: 1px solid #e3e5dc; border-radius: 4px; padding: 10px; background: #fff; }
+.pairing-qr svg { width: min(208px, calc(100vw - 112px)); height: auto; display: block; }
+.pairing-countdown { display: flex; align-items: center; gap: 7px; margin: 0 0 15px; color: #687060; font-size: 11px; }
+.pairing-countdown .device-indicator { width: 7px; height: 7px; box-shadow: 0 0 0 3px #e9ecdf; }
+.pairing-countdown strong { color: #344b36; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.pairing-secret-group { width: 100%; margin: 0 0 14px; }
+.pairing-secret { font-family: var(--mono); font-size: 12px !important; letter-spacing: .04em; }
+.pairing-secret-group .field-hint { overflow-wrap: anywhere; }
+.pairing-link { width: 100%; display: grid; gap: 6px; border-top: 1px solid #e7e8e1; padding: 12px 0; }
+.pairing-link > span { color: #85897f; font-size: 10px; }
+.pairing-link a { color: #3f6843; font-size: 11px; font-weight: 620; overflow-wrap: anywhere; }
+.pairing-link code, .pairing-paste textarea { width: 100%; color: #596153; font: 10px/1.5 var(--mono); overflow-wrap: anywhere; }
+.pairing-paste { width: 100%; border-top: 1px solid #e7e8e1; padding-top: 11px; }
+.pairing-paste summary { color: #657059; font-size: 10px; cursor: pointer; }
+.pairing-paste textarea { min-height: 95px; margin-top: 9px; border: 1px solid #d8dacf; border-radius: 4px; padding: 9px; background: #fffefa; resize: vertical; }
+.pairing-message { min-height: 28px; margin: 0 0 8px; color: transparent; font-size: 10px; line-height: 1.45; }
+.pairing-message--error { color: #a43f35; }
+.pairing-message--notice { color: #4f6944; }
+.pairing-create { width: 100%; }
+.revoke-card { border-color: #e8d9d3; }
+.revoke-card .send-lock { color: #934a40; border-color: #eadbd5; }
+.revoke-button { width: 100%; }
+.revoke-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid #e7d6d0; border-radius: 4px; padding: 12px; background: #fbf5f2; }
+.revoke-confirm p { flex: 1 0 100%; margin: 0 0 4px; color: #76534b; font-size: 11px; line-height: 1.5; }
+.revoke-confirm .danger-button { width: 100%; }
 .quota-title { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 10px; color: #58604f; font-size: 11px; }
 .quota-title strong { color: #3e483a; font-weight: 650; }
 .quota-title span, .quota-card > small { color: #7c8177; font-size: 10px; }
@@ -211,6 +241,7 @@ h1, h2, p { margin-top: 0; }
   .auth-card { max-width: 520px; }
   .inbox-layout { padding: 50px 0 58px; }
   .vault-workspace { grid-template-columns: minmax(0, 1fr); }
+  .account-actions { grid-template-columns: 1fr; }
   .send-card { padding: 20px; }
 }
 

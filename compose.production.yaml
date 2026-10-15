@@ -11,6 +11,7 @@ x-api-environment: &api-environment
   Bootstrap__SyncCredentials: "${VAULT_BOOTSTRAP_SYNC_CREDENTIALS:-true}"
   TrustedProxyIp: ${VAULT_WEB_IP:-172.31.20.10}
   Security__AllowedOrigins__0: https://${VAULT_DOMAIN:?Set the public domain for Vault}
+  Security__ServerOrigin: https://${VAULT_DOMAIN:?Set the public domain for Vault}
   DataProtection__ApplicationName: Vault
   DataProtection__KeysPath: /home/app/.aspnet/DataProtection-Keys
   Storage__FilesPath: /var/lib/vault/files

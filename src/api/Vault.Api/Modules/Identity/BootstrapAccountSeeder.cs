@@ -96,6 +96,9 @@ public sealed class BootstrapAccountSeeder(VaultDbContext database, IPasswordHas
         await EnsureUsernameAvailableAsync(normalizedUsername, bootstrap.Id, cancellationToken);
 
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+        var locked = await database.Users.Where(user => user.Id == bootstrap.Id && user.Status == "active")
+            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.Status, user => user.Status), cancellationToken);
+        if (locked != 1) throw new InvalidOperationException("The bootstrap account is unavailable.");
         bootstrap.Username = username;
         bootstrap.NormalizedUsername = normalizedUsername;
         bootstrap.PasswordHash = hasher.HashPassword(bootstrap, password);
@@ -106,6 +109,12 @@ public sealed class BootstrapAccountSeeder(VaultDbContext database, IPasswordHas
         var revokedAt = DateTime.UtcNow;
         foreach (var device in activeDevices)
             device.RevokedAt = revokedAt;
+        await database.AndroidSessions.Where(session => session.UserId == bootstrap.Id && session.RevokedAt == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(session => session.RevokedAt, revokedAt), cancellationToken);
+        await database.DeviceCredentials.Where(token => database.AndroidSessions.Any(session => session.Id == token.SessionId && session.UserId == bootstrap.Id) && token.RevokedAt == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.RevokedAt, revokedAt), cancellationToken);
+        await database.DevicePairingSessions.Where(session => session.UserId == bootstrap.Id && session.ConsumedAt == null && session.RevokedAt == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(session => session.RevokedAt, revokedAt), cancellationToken);
 
         database.AuditEvents.Add(new VaultAuditEvent
         {

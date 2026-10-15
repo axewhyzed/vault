@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import FileUpload from './FileUpload';
+import PairingPanel from './PairingPanel';
 
 type Session = { userId: string; email: string; deviceId: string };
 type Csrf = { token: string; headerName: 'X-CSRF-TOKEN' };
@@ -90,6 +91,8 @@ function App() {
   const [inboxNotice, setInboxNotice] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [revokeConfirm, setRevokeConfirm] = useState(false);
+  const [revokeBusy, setRevokeBusy] = useState(false);
 
   const publishError = (text: string) => { setMessageKind('error'); setMessage(text); };
   const invalidateRequests = () => { generationRef.current += 1; };
@@ -110,7 +113,7 @@ function App() {
     detailRequestRef.current += 1;
     setSession(null); setView('signed-out'); setItems([]); setQuota(null); setDetail(null); setSelectedId(null);
     setContent(''); setDisplayName(''); setRetryIntent(null); setSendMessage(''); setSendError(false); setSendBusy(false);
-    setCopyMessage(''); setInboxNotice(''); setDeleteConfirm(false);
+    setCopyMessage(''); setInboxNotice(''); setDeleteConfirm(false); setRevokeConfirm(false);
     setMessageKind('error'); setMessage('Your session has expired. Sign in again to continue.');
     if (window.location.pathname !== '/') window.history.replaceState({}, '', '/');
     void fetchCsrf().catch(() => undefined);
@@ -229,10 +232,26 @@ function App() {
     try {
       const token = await fetchCsrf();
       const response = await fetch(`${API}/auth/logout`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', [token.headerName]: token.token } });
-      if (response.status === 401 || response.ok) { invalidateRequests(); detailRequestRef.current += 1; setSession(null); setView('signed-out'); setItems([]); setDetail(null); setSelectedId(null); setContent(''); setDisplayName(''); setRetryIntent(null); setSendMessage(''); setSendError(false); setSendBusy(false); setCopyMessage(''); setInboxNotice(''); setDeleteConfirm(false); setMessageKind('notice'); setMessage('You are signed out.'); if (window.location.pathname !== '/') window.history.replaceState({}, '', '/'); await fetchCsrf(); return; }
+      if (response.status === 401 || response.ok) { invalidateRequests(); detailRequestRef.current += 1; setSession(null); setView('signed-out'); setItems([]); setDetail(null); setSelectedId(null); setContent(''); setDisplayName(''); setRetryIntent(null); setSendMessage(''); setSendError(false); setSendBusy(false); setCopyMessage(''); setInboxNotice(''); setDeleteConfirm(false); setRevokeConfirm(false); setMessageKind('notice'); setMessage('You are signed out.'); if (window.location.pathname !== '/') window.history.replaceState({}, '', '/'); await fetchCsrf(); return; }
       publishError(await handleApiFailure(response));
     } catch (error) { publishError(error instanceof TypeError ? 'Vault is unreachable. Check your connection and try again.' : error instanceof Error ? error.message : 'Vault could not sign you out.'); }
     finally { setBusy(false); }
+  }
+
+  async function handleRevokeEverywhere() {
+    if (revokeBusy) return;
+    setRevokeBusy(true); setMessage('');
+    try {
+      const token = await fetchCsrf();
+      const response = await fetch(`${API}/auth/sessions/revoke-all`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json', Accept: 'application/json', [token.headerName]: token.token }, body: '{}' });
+      if (response.status === 401) { signOutOnUnauthorized(); return; }
+      if (response.status !== 204 && !response.ok) { publishError(await handleApiFailure(response)); return; }
+      invalidateRequests(); detailRequestRef.current += 1;
+      setSession(null); setView('signed-out'); setItems([]); setQuota(null); setDetail(null); setSelectedId(null); setContent(''); setDisplayName(''); setRetryIntent(null); setSendMessage(''); setSendError(false); setSendBusy(false); setCopyMessage(''); setInboxNotice(''); setDeleteConfirm(false); setRevokeConfirm(false);
+      setMessageKind('notice'); setMessage('You are signed out everywhere. Sign in again on each device you want to keep using.');
+      if (window.location.pathname !== '/') window.history.replaceState({}, '', '/');
+    } catch (error) { publishError(error instanceof TypeError ? 'Vault is unreachable. Check your connection and try again.' : error instanceof Error ? error.message : 'Could not sign out everywhere.'); }
+    finally { setRevokeBusy(false); }
   }
 
   function resetSendRetry() { setRetryIntent(null); if (sendMessage.startsWith('Vault may have received')) setSendMessage(''); }
@@ -308,12 +327,13 @@ function App() {
 
   return (
     <main className="app-shell">
-      <header className="topbar"><a className="brand" href="/" aria-label="Vault home"><VaultMark /><span>vault</span></a><div className="topbar-right"><span className="topbar-note">PERSONAL RELAY</span>{view === 'signed-in' && <button className="text-button" type="button" onClick={handleLogout} disabled={busy}>{busy ? 'Signing out…' : 'Sign out'}</button>}</div></header>
+      <header className="topbar"><a className="brand" href="/" aria-label="Vault home"><VaultMark /><span>vault</span></a><div className="topbar-right"><span className="topbar-note">PERSONAL RELAY</span>{view === 'signed-in' && <button className="text-button" type="button" onClick={handleLogout} disabled={busy || revokeBusy}>{busy ? 'Signing out…' : 'Sign out'}</button>}</div></header>
       {view === 'loading' && <section className="loading-panel" aria-live="polite" aria-busy="true"><span className="loading-ring" aria-hidden="true" /><p>Restoring your private space…</p></section>}
       {view === 'signed-out' && <section className="auth-layout" aria-labelledby="welcome-title"><div className="intro-panel"><p className="eyebrow"><span className="eyebrow-line" /> YOUR DEVICES, IN SYNC</p><h1 id="welcome-title">A quieter way<br />to move things.</h1><p className="intro">A private bridge between your devices. Sign in to open your personal Vault.</p><div className={`service-status ${serviceOnline === false ? 'service-status--offline' : 'service-status--ready'}`} role="status"><span className="status-dot" /><span>{serviceOnline === null ? 'Checking Vault' : serviceOnline ? 'Vault is ready' : 'Vault is having trouble connecting'}</span></div></div>
         <section className="auth-card" aria-labelledby="signin-title"><div className="auth-card-top"><span className="card-kicker">PRIVATE SPACE</span><span className="secure-label"><span aria-hidden="true">●</span> SECURE SIGN-IN</span></div><h2 id="signin-title">Welcome back</h2><p className="auth-description">Use your Vault account to continue.</p><form onSubmit={handleLogin} noValidate><div className="field-group"><label htmlFor="identifier">Email or username</label><input ref={identifierRef} id="identifier" name="identifier" type="text" autoComplete="username" inputMode="text" required value={identifier} onChange={(event) => setIdentifier(event.target.value)} disabled={busy} placeholder="Email address or username" /></div><div className="field-group"><label htmlFor="password">Password</label><input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} /></div><div className={`form-message ${message ? (messageKind === 'error' ? 'form-message--error' : 'form-message--notice') : ''}`} role={messageKind === 'error' ? 'alert' : 'status'} aria-live="polite">{message}</div><button className="primary-button" type="submit" disabled={busy || retrySeconds > 0 || !identifier.trim() || !password}><span>{busy ? 'Signing in…' : retrySeconds > 0 ? `Try again in ${retrySeconds}s` : 'Sign in'}</span><span aria-hidden="true">→</span></button></form><p className="card-footnote"><span aria-hidden="true">⌑</span> Your password is only sent over this secure connection.</p></section></section>}
       {view === 'signed-in' && session && <section className="inbox-layout" aria-labelledby="inbox-title">
         <div className="inbox-heading-row"><div><p className="eyebrow"><span className="eyebrow-line" /> YOUR PRIVATE SPACE</p><h1 ref={inboxHeadingRef} id="inbox-title" tabIndex={-1}>Your inbox</h1><p className="intro">Signed in as <strong>{session.email}</strong></p></div><div className="device-chip"><span className="device-indicator" /><span><b>This browser</b><small>Current session</small></span></div></div>
+        <div className="account-actions"><PairingPanel onUnauthorized={signOutOnUnauthorized} /><section className="send-card revoke-card" aria-labelledby="revoke-title"><div className="section-heading"><div><p className="card-kicker">ACCOUNT SECURITY</p><h2 id="revoke-title">Session control</h2></div><span className="send-lock" aria-hidden="true">⌑</span></div><p className="pairing-description">Lost a device or want to start fresh? Revoke every web session and Android refresh token.</p><p className={`pairing-message ${message && messageKind === 'error' ? 'pairing-message--error' : ''}`} role={messageKind === 'error' ? 'alert' : 'status'} aria-live="polite">{view === 'signed-in' && messageKind === 'error' ? message : ''}</p>{!revokeConfirm ? <button className="danger-button revoke-button" type="button" onClick={() => setRevokeConfirm(true)}>Sign out everywhere</button> : <div className="revoke-confirm" role="group" aria-label="Confirm sign out everywhere"><p>This will immediately revoke all web sessions and Android refresh tokens. You will need to sign in again on this browser too.</p><button className="danger-button" type="button" disabled={revokeBusy} onClick={() => void handleRevokeEverywhere()}>{revokeBusy ? 'Revoking sessions…' : 'Confirm sign out everywhere'}</button><button className="secondary-button" type="button" disabled={revokeBusy} onClick={() => setRevokeConfirm(false)}>Cancel</button></div>}</section></div>
         <div className="quota-card" aria-label="Storage quota"><div className="quota-title"><strong>Vault storage</strong><span>{quota ? `${formatBytes(quota.activeBytes)} of ${formatBytes(quota.maxActiveBytes)}` : 'Loading usage…'}</span></div><div className="quota-track" role="progressbar" aria-label="Storage used" aria-valuemin={0} aria-valuemax={quota?.maxActiveBytes ?? 2_000_000_000} aria-valuenow={quota?.activeBytes ?? 0}><span style={{ width: `${bytePercent}%` }} /></div><small>{quota ? `${quota.activeItems.toLocaleString()} of ${quota.maxActiveItems.toLocaleString()} items` : ' '}</small></div>
         <div className={`vault-workspace ${selectedId ? 'vault-workspace--detail' : ''}`}>
           <div className="send-stack">
