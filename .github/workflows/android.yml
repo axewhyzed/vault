@@ -5,20 +5,12 @@ on:
     branches: [main]
     paths:
       - 'android/**'
-      - 'src/api/**'
-      - 'tests/api/**'
-      - 'web/src/PairingPanel.tsx'
       - '.github/workflows/android.yml'
-      - 'scripts/test-android.ps1'
   pull_request:
     branches: [main]
     paths:
       - 'android/**'
-      - 'src/api/**'
-      - 'tests/api/**'
-      - 'web/src/PairingPanel.tsx'
       - '.github/workflows/android.yml'
-      - 'scripts/test-android.ps1'
   workflow_dispatch:
 
 concurrency:
