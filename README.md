@@ -50,7 +50,7 @@ Share links, snippets, photos, and files up to 100 MB directly from Android's na
 <td align="center" valign="top">
 <img src="docs/assets/android-client.png" alt="Vault Android Client" width="280px" />
 <br/>
-<sub><i>Native Kotlin + Compose client targeting Android's system share sheet with offline spooling and WorkManager background uploads.</i></sub>
+<sub><i>Paired Android client receiving a shared link via the native system share sheet with retention selection and upload history.</i></sub>
 </td>
 <td align="center" valign="top">
 <img src="docs/assets/web-pairing.png" alt="Vault Web Pairing Modal" width="100%" />
