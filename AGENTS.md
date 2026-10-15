@@ -56,12 +56,16 @@ To prevent release spam, broken builds, and repository bloat, all agents modifyi
 
 ---
 
-## 3. CI/CD Decoupling Rules
+## 3. CI/CD Decoupling & Trigger Scoping Rules
 
+- **Code-Only Triggering (No Doc/Asset Runs):**
+  - Workflows must **never** run on pure documentation, markdown, or asset changes (`docs/**`, `README.md`, `LICENSE`, `AGENTS.md`, `*.md`, `docs/assets/**`).
+  - `deploy.yml` strictly triggers on server/web code paths (`src/**`, `web/**`, `infra/**`, `tests/**`, `compose*.yaml`).
+  - `android.yml` strictly triggers on Android client code (`android/**` excluding `!android/**.md`).
 - **Do not re-couple Android to `deploy.yml`**:
   - `deploy.yml` is responsible for server-side Docker container builds (`vault-api`, `vault-web`, `vault-backup`).
   - It must remain fast and lightweight, running only `.NET` API tests and Web build/lint.
-  - It must continue to ignore `android/**` changes.
+  - It must never track `android/**` paths.
 - **Do not add backend/web paths to `android.yml`**:
   - Android unit tests mock HTTP endpoints locally using `MockWebServer` and do not test against live C# backends.
   - Adding `src/**` or `web/**` triggers to `android.yml` causes unnecessary runner minutes and noise without providing integration verification.
