@@ -728,7 +728,8 @@ public sealed class TextItemTests
                     ["Database:ApplyMigrations"] = "false",
                     ["TrustedProxyIp"] = "127.0.0.1",
                     ["Security:AllowedOrigins:0"] = Origin,
-                    ["Storage:FilesPath"] = filesPath
+                    ["Storage:FilesPath"] = filesPath,
+                    ["Storage:MaintenanceLockPath"] = Path.Combine(filesPath, "maintenance", "maintenance.lock")
                 }));
                 builder.ConfigureServices(services =>
                 {
