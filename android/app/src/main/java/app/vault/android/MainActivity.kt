@@ -53,6 +53,43 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIncoming(intent: Intent?) {
+        if (intent?.getBooleanExtra("vault_demo_mode", false) == true) {
+            val origin = intent.getStringExtra("vault_demo_origin") ?: BuildConfig.PAIRING_SERVER_ORIGIN
+            store.saveCredentials(Credentials(
+                origin = origin,
+                accessToken = "demo_access_token",
+                accessExpiry = "2099-01-01T00:00:00Z",
+                refreshToken = "demo_refresh_token",
+                refreshExpiry = "2099-01-01T00:00:00Z",
+                userId = "usr_owner_01",
+                deviceId = "dev_phone_01"
+            ))
+            store.saveDraft(Draft(
+                id = UUID.randomUUID().toString(),
+                idempotencyKey = UUID.randomUUID().toString(),
+                serverOrigin = origin,
+                ownerUserId = "usr_owner_01",
+                displayName = "quarterly-infrastructure-report.pdf",
+                contentType = "application/pdf",
+                sizeBytes = 8420000,
+                bytesSent = 8420000,
+                state = DraftState.AVAILABLE
+            ))
+            store.saveDraft(Draft(
+                id = UUID.randomUUID().toString(),
+                idempotencyKey = UUID.randomUUID().toString(),
+                serverOrigin = origin,
+                ownerUserId = "usr_owner_01",
+                displayName = "Tailscale Exit Nodes & WireGuard Config",
+                text = "Server: 192.168.1.100\nTailscale exit: 100.64.0.1",
+                contentType = "text/plain",
+                sizeBytes = 284,
+                bytesSent = 284,
+                state = DraftState.AVAILABLE
+            ))
+            statusMessage = "Paired with Vault server."
+            refreshCounter++
+        }
         if (intent?.action == Intent.ACTION_VIEW) intent.dataString?.let(::parsePairing)
         if (intent?.action != Intent.ACTION_SEND) return
         lifecycleScope.launch {
