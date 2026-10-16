@@ -53,4 +53,33 @@ class DraftQueueTest {
         assertNull(store.draft(prepared.id))
         assertFalse(store.hasSpool("cancel-spool"))
     }
+
+    @Test fun recentDraftsAreNewestFirstAndScopedToTheCurrentOwner() {
+        val store = store()
+        val drafts = listOf(
+            Draft("owner-a-old", "key-a-old", "https://vault.example", "owner-a", text = "old", displayName = "old.txt", contentType = "text/plain", sizeBytes = 3, createdAtEpochMillis = 100),
+            Draft("owner-b-new", "key-b-new", "https://vault.example", "owner-b", text = "private", displayName = "private.txt", contentType = "text/plain", sizeBytes = 7, createdAtEpochMillis = 300),
+            Draft("owner-a-new", "key-a-new", "https://VAULT.example", "owner-a", text = "new", displayName = "new.txt", contentType = "text/plain", sizeBytes = 3, createdAtEpochMillis = 200),
+        )
+        drafts.forEach(store::saveDraft)
+
+        assertEquals(listOf("owner-a-new", "owner-a-old"), store.draftsFor("https://vault.example", "owner-a").map { it.id })
+        assertTrue(store.draftsFor(null, "owner-a").isEmpty())
+        drafts.forEach { store.deleteDraft(it.id) }
+    }
+
+    @Test fun uploadProgressDoesNotDiscardTheServerUploadId() {
+        val store = store()
+        val initial = Draft("progress-file", "stable-intent-key", "https://vault.example", "owner", spoolName = "progress-spool", displayName = "file.bin", contentType = "application/octet-stream", sizeBytes = 100, state = DraftState.UPLOADING)
+        val progress = UploadDraftProgress(store, initial)
+        progress.saveState(initial.copy(uploadId = "upload-123"))
+        progress.saveBytesSent(64)
+
+        val persisted = store.draft(initial.id)!!
+        assertEquals("upload-123", persisted.uploadId)
+        assertEquals("stable-intent-key", persisted.idempotencyKey)
+        assertEquals(64L, persisted.bytesSent)
+        assertEquals("upload-123", progress.current().uploadId)
+        store.deleteDraft(initial.id)
+    }
 }

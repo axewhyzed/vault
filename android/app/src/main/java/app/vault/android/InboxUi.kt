@@ -255,7 +255,7 @@ internal fun InboxTab(
 
 @Composable
 private fun InboxRow(item: InboxSummary, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).semantics { contentDescription = "${item.displayName}, ${item.type}, ${item.sizeBytes} bytes, from ${item.sourceDevice.name}, expires ${item.expiresAt}. Open details." }) {
+    Card(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).semantics { contentDescription = "${item.displayName}, ${item.type}, ${formatBytes(item.sizeBytes)}, from ${item.sourceDevice.name}, expires ${formatInstant(item.expiresAt)}. Open details." }) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(item.displayName, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text("${item.type} · ${formatBytes(item.sizeBytes)} · ${item.state.lowercase()}")
@@ -288,7 +288,7 @@ private fun DetailContent(item: InboxDetail, busy: Boolean, progressBytes: Long,
         }
         if (busy) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (progressBytes > 0) Text("Verified download: ${formatBytes(progressBytes)} of ${formatBytes(item.sizeBytes)} received.")
+            if (progressBytes > 0) Text("Receiving and verifying: ${formatBytes(progressBytes)} of ${formatBytes(item.sizeBytes)}.")
         }
         message?.let { Text(it, color = if (it.contains("could not", true) || it.contains("expired", true)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
     }

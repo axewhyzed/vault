@@ -73,4 +73,59 @@ class InboxApiTest {
             assertEquals(1, server.requestCount)
         } finally { server.shutdown() }
     }
+
+    @Test fun fetchesTextDetailWithoutCachingAndRejectsMalformedIdsBeforeNetwork() {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = store(server)
+            server.enqueue(MockResponse().setBody("""${summary().dropLast(1)},"text":"exact\ntext","contentType":"text/plain","downloadUrl":null,"sha256":null}"""))
+
+            val detail = VaultApi(store).getItem("123e4567-e89b-12d3-a456-426614174000")
+
+            assertEquals("exact\ntext", detail.text)
+            assertEquals("text/plain", detail.contentType)
+            val request = server.takeRequest()
+            assertEquals("/api/v1/items/123e4567-e89b-12d3-a456-426614174000", request.path)
+            assertEquals("Bearer va1_access", request.getHeader("Authorization"))
+            assertEquals("no-store", request.getHeader("Cache-Control"))
+            val invalid = assertThrows(ApiFailure::class.java) { VaultApi(store).getItem("../not-an-id") }
+            assertEquals("invalid_item_id", invalid.code)
+            assertEquals(1, server.requestCount)
+        } finally { server.shutdown() }
+    }
+
+    @Test fun enforcesListLimitBeforeSendingAndMapsExpiredDetail() {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = store(server)
+            val invalid = assertThrows(ApiFailure::class.java) { VaultApi(store).listItems(limit = 101) }
+            assertEquals("invalid_limit", invalid.code)
+            server.enqueue(MockResponse().setResponseCode(410).setBody("{}"))
+            val expired = assertThrows(ApiFailure::class.java) { VaultApi(store).getItem("123e4567-e89b-12d3-a456-426614174000") }
+            assertEquals(410, expired.status)
+            assertEquals("item_expired", expired.code)
+            assertEquals(1, server.requestCount)
+        } finally { server.shutdown() }
+    }
+
+    @Test fun doesNotLoopWhenTheRefreshedInboxRequestIsStillUnauthorized() {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = store(server)
+            server.enqueue(MockResponse().setResponseCode(401).setBody("{}"))
+            server.enqueue(MockResponse().setBody("""{"tokenType":"Bearer","accessToken":"va1_rotated","accessTokenExpiresAt":"2099-01-01T00:00:00Z","refreshToken":"vr1_rotated","refreshTokenExpiresAt":"2099-02-01T00:00:00Z","userId":"owner","deviceId":"device"}"""))
+            server.enqueue(MockResponse().setResponseCode(401).setBody("{}"))
+
+            val failure = assertThrows(ApiFailure::class.java) { VaultApi(store).listItems() }
+
+            assertEquals(401, failure.status)
+            assertEquals(3, server.requestCount)
+            val first = server.takeRequest()
+            val refresh = server.takeRequest()
+            val retry = server.takeRequest()
+            assertEquals("/api/v1/items?limit=30", first.path)
+            assertEquals("/api/v1/auth/refresh", refresh.path)
+            assertEquals("Bearer va1_rotated", retry.getHeader("Authorization"))
+        } finally { server.shutdown() }
+    }
 }
