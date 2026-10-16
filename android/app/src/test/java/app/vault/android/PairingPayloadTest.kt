@@ -30,4 +30,23 @@ class PairingPayloadTest {
         val link = "vault://pair?serverOrigin=https%3A%2F%2Fvault.axewhyzedlabs.co.in&serverOrigin=https%3A%2F%2Fevil.example&pairingSessionId=123e4567-e89b-12d3-a456-426614174000"
         assertThrows(IllegalArgumentException::class.java) { PairingPayload.parse(link, "https://vault.axewhyzedlabs.co.in") }
     }
+
+    @Test fun rejectsExpiredAndOverlongPairingPayloadsAndUnsafeOriginForms() {
+        val session = "123e4567-e89b-12d3-a456-426614174000"
+        fun qr(origin: String, expiry: String, secret: String = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG") =
+            """{"version":1,"serverOrigin":"$origin","pairingSessionId":"$session","pairingSecret":"$secret","expiresAt":"$expiry"}"""
+
+        assertThrows(IllegalArgumentException::class.java) {
+            PairingPayload.parse(qr("https://vault.axewhyzedlabs.co.in", Instant.now().minusSeconds(1).toString()), "https://vault.axewhyzedlabs.co.in")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            PairingPayload.parse(qr("https://vault.axewhyzedlabs.co.in", Instant.now().plusSeconds(661).toString()), "https://vault.axewhyzedlabs.co.in")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            PairingPayload.parse(qr("https://user@vault.axewhyzedlabs.co.in", Instant.now().plusSeconds(30).toString()), "https://vault.axewhyzedlabs.co.in")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            PairingPayload.parse(qr("https://vault.axewhyzedlabs.co.in", Instant.now().plusSeconds(30).toString(), "bad secret"), "https://vault.axewhyzedlabs.co.in")
+        }
+    }
 }

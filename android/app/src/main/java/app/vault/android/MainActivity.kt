@@ -13,6 +13,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -34,14 +37,44 @@ class MainActivity : ComponentActivity() {
     private var deviceName by mutableStateOf(android.os.Build.MODEL.take(100))
     private var refreshCounter by mutableIntStateOf(0)
     private var foregroundToken by mutableIntStateOf(0)
+    private var selectedTab by mutableStateOf("Inbox")
+    private var pairingInProgress by mutableStateOf(false)
+    private var signOutConfirmation by mutableStateOf(false)
+    private var signOutInProgress by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        handleIncoming(intent)
+        val processLaunchIntent = shouldHandleLaunchIntent(savedInstanceState != null)
+        if (savedInstanceState != null) {
+            selectedTab = savedInstanceState.getString(STATE_SELECTED_TAB, "Inbox")
+            pasteText = ""
+            secret = ""
+            deviceName = savedInstanceState.getString(STATE_DEVICE_NAME, deviceName)
+            pairingDeadline = savedInstanceState.takeIf { it.containsKey(STATE_PAIRING_DEADLINE) }?.getLong(STATE_PAIRING_DEADLINE)
+            val serverOrigin = savedInstanceState.getString(STATE_PAIRING_ORIGIN)
+            val sessionId = savedInstanceState.getString(STATE_PAIRING_SESSION)
+            if (serverOrigin != null && sessionId != null) payload = PairingPayload(serverOrigin, sessionId, expiresAt = savedInstanceState.getString(STATE_PAIRING_EXPIRY))
+            statusMessage = savedInstanceState.getString(STATE_STATUS, "")
+        }
+        if (processLaunchIntent) handleIncoming(intent)
+        setIntent(Intent(this, MainActivity::class.java))
         setContent { VaultScreen() }
     }
 
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIncoming(intent) }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleIncoming(intent); setIntent(Intent(this, MainActivity::class.java)) }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_SELECTED_TAB, selectedTab)
+        outState.putString(STATE_DEVICE_NAME, deviceName)
+        outState.putString(STATE_STATUS, statusMessage)
+        pairingDeadline?.let { outState.putLong(STATE_PAIRING_DEADLINE, it) }
+        payload?.let {
+            outState.putString(STATE_PAIRING_ORIGIN, it.serverOrigin)
+            outState.putString(STATE_PAIRING_SESSION, it.pairingSessionId)
+            outState.putString(STATE_PAIRING_EXPIRY, it.expiresAt)
+        }
+        super.onSaveInstanceState(outState)
+    }
 
     override fun onResume() { super.onResume(); foregroundToken++ }
 
@@ -56,8 +89,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIncoming(intent: Intent?) {
-        if (intent?.getBooleanExtra("vault_demo_mode", false) == true) {
-            val origin = intent.getStringExtra("vault_demo_origin") ?: BuildConfig.PAIRING_SERVER_ORIGIN
+        if (shouldApplyDemoMode(BuildConfig.DEBUG, intent?.getBooleanExtra("vault_demo_mode", false) == true)) {
+            val origin = intent?.getStringExtra("vault_demo_origin") ?: BuildConfig.PAIRING_SERVER_ORIGIN
             store.saveCredentials(Credentials(
                 origin = origin,
                 accessToken = "demo_access_token",
@@ -116,11 +149,12 @@ class MainActivity : ComponentActivity() {
                         Draft(draftId, UUID.randomUUID().toString(), origin, credentials.userId, spoolName = spoolName, displayName = metadata.first, contentType = metadata.second, sizeBytes = result.sizeBytes, sha256 = result.sha256)
                     } else {
                         val value = share.text!!
-                        require(value.toByteArray(Charsets.UTF_8).size <= 262_144) { "Text exceeds the 256 KB limit." }
+                        require(isShareTextWithinLimit(value)) { "Text exceeds the 256 KB limit." }
                         Draft(draftId, UUID.randomUUID().toString(), origin, credentials.userId, text = value, displayName = "Text snippet", contentType = "text/plain", sizeBytes = value.toByteArray(Charsets.UTF_8).size.toLong())
                     }
                 }
                 draftQueue().prepare(draft)
+                selectedTab = "Recent sends"
                 statusMessage = "Review your send before uploading."
                 refreshCounter++
             } catch (e: Exception) { statusMessage = e.message ?: "Could not accept this share." }
@@ -138,24 +172,21 @@ class MainActivity : ComponentActivity() {
                 if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) size = cursor.getLong(sizeColumn)
             }
         } }
-        require(size == null || size!! <= Spooler.MAX_FILE_BYTES) { "Files may not exceed 100 MB." }
-        name = name.substringAfterLast('/').substringAfterLast('\\').filterNot { Character.isISOControl(it) }.take(200).ifBlank { "shared-file" }
-        val mime = contentResolver.getType(uri)?.takeIf { it.matches(Regex("[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+")) } ?: "application/octet-stream"
-        return name to mime
+        validateSharedFileSize(size)
+        return safeSharedFileName(name) to safeSharedMimeType(contentResolver.getType(uri))
     }
 
     @Composable private fun VaultScreen() {
         val scope = rememberCoroutineScope()
         val credentials = remember(refreshCounter) { store.credentials() }
-        val drafts = remember(refreshCounter) { store.allDrafts() }
-        var selectedTab by remember(credentials?.userId) { mutableStateOf("Inbox") }
+        val drafts = remember(refreshCounter, credentials?.origin, credentials?.userId) { store.draftsFor(credentials?.origin, credentials?.userId) }
         LaunchedEffect(credentials?.deviceId, drafts.any { it.state == DraftState.QUEUED || it.state == DraftState.UPLOADING || it.state == DraftState.RETRYING }) {
             while (credentials != null && drafts.any { it.state == DraftState.QUEUED || it.state == DraftState.UPLOADING || it.state == DraftState.RETRYING }) {
                 delay(1000); refreshCounter++
             }
         }
         LaunchedEffect(credentials?.deviceId) {
-            if (credentials != null) store.allDrafts().filter { it.state == DraftState.QUEUED }.forEach { UploadWorker.enqueue(this@MainActivity, it.id) }
+            if (credentials != null) store.draftsFor(credentials.origin, credentials.userId).filter { it.state == DraftState.QUEUED }.forEach { UploadWorker.enqueue(this@MainActivity, it.id) }
         }
         val scanner = rememberLauncherForActivityResult(ScanContract()) { result -> result.contents?.let(::parsePairing) }
         LaunchedEffect(payload?.pairingSessionId, pairingDeadline) {
@@ -169,26 +200,37 @@ class MainActivity : ComponentActivity() {
         }
         MaterialTheme {
             Surface(Modifier.fillMaxSize()) {
-                Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                val screenModifier = Modifier.fillMaxSize().padding(20.dp).then(
+                    if (credentials == null) Modifier.verticalScroll(rememberScrollState()) else Modifier
+                )
+                Column(screenModifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Vault", style = MaterialTheme.typography.headlineMedium)
                     if (credentials == null) {
-                        Text("Pair this phone with your Vault server to send items to your inbox.")
-                        OutlinedTextField(pasteText, { pasteText = it }, label = { Text("Paste QR data or vault://pair link") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { parsePairing(pasteText) }) { Text("Continue") }
-                            OutlinedButton(onClick = { scanner.launch(ScanOptions().setPrompt("Scan Vault pairing QR").setBeepEnabled(false).setOrientationLocked(false)) }) { Text("Scan QR") }
-                        }
+                        PairingCodeEntry(
+                            value = pasteText,
+                            onValueChange = { pasteText = it },
+                            onContinue = { parsePairing(pasteText) },
+                            onScan = { scanner.launch(ScanOptions().setPrompt("Scan Vault pairing QR").setBeepEnabled(false).setOrientationLocked(false)) },
+                        )
                         payload?.let { selected ->
                             Text("Server: ${selected.serverOrigin}")
-                            if (selected.pairingSecret == null) OutlinedTextField(secret, { secret = it }, label = { Text("10-minute pairing secret") }, modifier = Modifier.fillMaxWidth())
+                            if (selected.pairingSecret == null) OutlinedTextField(secret, { secret = it }, label = { Text("10-minute pairing secret") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
                             OutlinedTextField(deviceName, { deviceName = it.take(100) }, label = { Text("Device name") }, modifier = Modifier.fillMaxWidth())
-                            Button(onClick = { scope.launch {
-                                if ((pairingDeadline ?: 0L) <= System.currentTimeMillis()) { payload = null; secret = ""; pasteText = ""; statusMessage = "Pairing code expired. Create a fresh QR code."; return@launch }
-                                statusMessage = "Pairing…"
-                                try { val paired = withContext(Dispatchers.IO) { vaultApi(this@MainActivity).pair(selected, secret.trim(), deviceName.trim()) }; store.saveCredentials(paired); payload = null; pairingDeadline = null; secret = ""; pasteText = ""; statusMessage = "This phone is paired."; refreshCounter++ }
-                                catch (e: java.io.IOException) { statusMessage = "Pairing response was lost. Create a fresh pairing QR and pair again." }
-                                catch (e: Exception) { statusMessage = e.message ?: "Pairing failed. Create a fresh pairing QR if this code was already used." }
-                            } }, enabled = secret.isNotBlank() && deviceName.isNotBlank()) { Text("Pair phone") }
+                            Button(onClick = {
+                                if (pairingInProgress) return@Button
+                                pairingInProgress = true
+                                scope.launch {
+                                    try {
+                                        if ((pairingDeadline ?: 0L) <= System.currentTimeMillis()) { payload = null; secret = ""; pasteText = ""; statusMessage = "Pairing code expired. Create a fresh QR code."; return@launch }
+                                        statusMessage = "Pairing…"
+                                        try {
+                                            val paired = withContext(Dispatchers.IO) { vaultApi(this@MainActivity).pair(selected, secret.trim(), deviceName.trim()) }
+                                            store.saveCredentials(paired); payload = null; pairingDeadline = null; secret = ""; pasteText = ""; selectedTab = "Inbox"; statusMessage = "This phone is paired."; refreshCounter++
+                                        } catch (e: java.io.IOException) { statusMessage = "Pairing response was lost. Create a fresh pairing QR and pair again." }
+                                        catch (e: Exception) { statusMessage = e.message ?: "Pairing failed. Create a fresh pairing QR if this code was already used." }
+                                    } finally { pairingInProgress = false }
+                                }
+                            }, enabled = secret.isNotBlank() && deviceName.isNotBlank() && !pairingInProgress) { Text(if (pairingInProgress) "Pairing…" else "Pair phone") }
                         }
                     } else {
                         Text("Paired with ${credentials.origin}")
@@ -197,13 +239,8 @@ class MainActivity : ComponentActivity() {
                             FilterChip(selected = selectedTab == "Recent sends", onClick = { selectedTab = "Recent sends" }, label = { Text("Recent sends") }, modifier = Modifier.heightIn(min = 48.dp))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { refreshCounter++ }) { Text("Refresh status") }
-                            Button(onClick = { scope.launch {
-                                statusMessage = "Signing out everywhere…"
-                                try { withContext(Dispatchers.IO) { vaultApi(this@MainActivity).revokeAll() }; statusMessage = "All sessions were signed out." }
-                                catch (e: Exception) { statusMessage = e.message ?: "Could not revoke sessions." }
-                                refreshCounter++
-                            } }) { Text("Sign out everywhere") }
+                            if (selectedTab == "Recent sends") OutlinedButton(onClick = { refreshCounter++ }) { Text("Refresh sends") }
+                            Button(onClick = { signOutConfirmation = true }, enabled = !signOutInProgress) { Text(if (signOutInProgress) "Signing out…" else "Sign out everywhere") }
                         }
                         if (selectedTab == "Inbox") {
                             InboxTab(vaultApi(this@MainActivity), store, "${credentials.origin}|${credentials.userId}|${credentials.deviceId}", foregroundToken, Modifier.weight(1f))
@@ -231,6 +268,22 @@ class MainActivity : ComponentActivity() {
                     if (statusMessage.isNotBlank()) Text(statusMessage, color = MaterialTheme.colorScheme.primary)
                 }
             }
+            if (signOutConfirmation) {
+                SignOutConfirmationDialog(
+                    busy = signOutInProgress,
+                    onDismiss = { signOutConfirmation = false },
+                    onConfirm = {
+                        signOutConfirmation = false
+                        signOutInProgress = true
+                        scope.launch {
+                            statusMessage = "Signing out everywhere…"
+                            try { withContext(Dispatchers.IO) { vaultApi(this@MainActivity).revokeAll() }; statusMessage = "All sessions were signed out." }
+                            catch (e: Exception) { statusMessage = e.message ?: "Could not revoke sessions." }
+                            finally { signOutInProgress = false; refreshCounter++ }
+                        }
+                    },
+                )
+            }
         }
     }
 
@@ -238,27 +291,14 @@ class MainActivity : ComponentActivity() {
         enqueue = { UploadWorker.enqueue(this, it) },
         cancelWork = { UploadWorker.cancel(this, it) })
 
-    @Composable private fun PreparedSendCard(draft: Draft, onSend: (Int) -> Unit, onCancel: () -> Unit) {
-        var retention by remember(draft.id) { mutableIntStateOf(draft.retentionDays) }
-        var expanded by remember(draft.id) { mutableStateOf(false) }
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Ready to send", style = MaterialTheme.typography.titleMedium)
-                Text(draft.displayName)
-                if (draft.text != null) Text(draft.text.take(240), maxLines = 3)
-                else Text("${draft.contentType} · ${draft.sizeBytes} bytes")
-                Text("Destination: My Relay inbox")
-                Box {
-                    OutlinedButton(onClick = { expanded = true }) { Text("Keep for $retention day${if (retention == 1) "" else "s"} ▾") }
-                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        (1..7).forEach { days -> DropdownMenuItem(text = { Text("$days day${if (days == 1) "" else "s"}") }, onClick = { retention = days; expanded = false }) }
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onSend(retention) }) { Text("Send") }
-                    OutlinedButton(onClick = onCancel) { Text("Cancel") }
-                }
-            }
-        }
+    companion object {
+        private const val STATE_SELECTED_TAB = "vault.selectedTab"
+        private const val STATE_DEVICE_NAME = "vault.deviceName"
+        private const val STATE_STATUS = "vault.status"
+        private const val STATE_PAIRING_DEADLINE = "vault.pairingDeadline"
+        private const val STATE_PAIRING_ORIGIN = "vault.pairingOrigin"
+        private const val STATE_PAIRING_SESSION = "vault.pairingSession"
+        private const val STATE_PAIRING_EXPIRY = "vault.pairingExpiry"
     }
+
 }

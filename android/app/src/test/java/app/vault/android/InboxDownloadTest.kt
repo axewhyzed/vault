@@ -91,5 +91,25 @@ class InboxDownloadTest {
         } finally { server.shutdown() }
     }
 
+    @Test fun rejectsPartialOrUncacheableResponseAndMissingAttachmentHeaders() {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = store(server)
+            server.enqueue(fileResponse("x").setResponseCode(206).addHeader("Content-Range", "bytes 0-0/1"))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("x")
+                .addHeader("Content-Disposition", "attachment; filename=x").addHeader("X-Content-Type-Options", "nosniff"))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("x")
+                .addHeader("X-Content-Type-Options", "nosniff").addHeader("Cache-Control", "no-store"))
+
+            val partial = assertThrows(ApiFailure::class.java) { VaultApi(store).downloadToTemp(detail(store, "x".toByteArray())) }
+            assertEquals("inbox_request_failed", partial.code)
+            repeat(2) {
+                val failure = assertThrows(ApiFailure::class.java) { VaultApi(store).downloadToTemp(detail(store, "x".toByteArray())) }
+                assertEquals("invalid_download_response", failure.code)
+            }
+            assertEquals(3, server.requestCount)
+        } finally { server.shutdown() }
+    }
+
     private fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 }

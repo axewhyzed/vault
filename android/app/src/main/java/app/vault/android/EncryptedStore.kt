@@ -32,10 +32,15 @@ class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCr
     fun saveDraft(draft: Draft) = writeEncrypted(draftFile(draft.id), draft.json().toString().toByteArray())
     fun draft(id: String): Draft? = try { Draft.from(JSONObject(crypto.decrypt(draftFile(id).readBytes()).toString(Charsets.UTF_8))) } catch (_: Exception) { null }
     @Synchronized fun allDrafts(): List<Draft> {
-        val all = drafts.listFiles()?.mapNotNull { file -> draft(file.nameWithoutExtension) }?.sortedByDescending { it.id } ?: emptyList()
+        val all = drafts.listFiles()?.mapNotNull { file -> draft(file.nameWithoutExtension) }
+            ?.sortedWith(compareByDescending<Draft> { it.createdAtEpochMillis }.thenByDescending { it.id }) ?: emptyList()
         val retained = all.mapNotNull { it.spoolName }.toSet()
         blobs.listFiles()?.filter { it.name.endsWith(".enc") && it.name.removeSuffix(".enc") !in retained }?.forEach(File::delete)
         return all
+    }
+    @Synchronized fun draftsFor(origin: String?, userId: String?): List<Draft> {
+        if (origin.isNullOrBlank() || userId.isNullOrBlank()) return emptyList()
+        return allDrafts().filter { it.ownerUserId == userId && it.serverOrigin.equals(origin, ignoreCase = true) }
     }
     fun deleteDraft(id: String) { val draft = draft(id); draftFile(id).delete(); draft?.spoolName?.let { spoolFile(it).delete() } }
     fun completeDraft(draft: Draft) {

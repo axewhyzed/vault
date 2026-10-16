@@ -17,8 +17,8 @@ This runs Android `assembleDebug`, `testDebugUnitTest`, and `lintDebug`. These a
 
 | Check | Status |
 |---|---|
-| Android local build, unit tests, lint via `scripts/test-android.ps1` | Pending for this Slice 7 verification record |
-| Backend/API and web checks via `scripts/test.ps1` | Pending for this Slice 7 verification record |
+| Android local build, 47 JVM/Robolectric tests (including Compose screens and a WorkManager retry), and lint via `scripts/test-android.ps1` | Passed locally after Slice 7 quality fixes; source-level test matrix is in `docs/android-test-coverage.md` |
+| Backend/API and web checks via `scripts/test.ps1` | Passed locally with Docker: 36 API tests, HTTPS/PostgreSQL integration scenarios, web build and lint |
 | Physical-device acceptance below | Pending |
 | Internet phone-to-PC/PC-to-phone flow | Pending |
 | Production Slice 5/7 rollout and backup/restore | Pending |
