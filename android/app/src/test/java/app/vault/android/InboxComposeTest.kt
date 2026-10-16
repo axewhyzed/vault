@@ -72,32 +72,70 @@ class InboxComposeTest {
         } finally { server.shutdown() }
     }
 
-    @Test fun preparedSendRequiresExplicitSendAndPreservesChosenRetention() {
-        var chosenRetention: Int? = null
-        var canceled = false
-        val draft = Draft("compose-send", "compose-key", "https://vault.example", "owner", text = "private note", displayName = "Text snippet", contentType = "text/plain", sizeBytes = 12, state = DraftState.PREPARED)
-        compose.setContent { MaterialTheme { PreparedSendCard(draft, onSend = { chosenRetention = it }, onCancel = { canceled = true }) } }
+    @Test fun sendHomeMakesAllThreeSendTypesDiscoverable() {
+        val choices = mutableListOf<String>()
+        compose.setContent {
+            MaterialTheme {
+                SendHomeScreen(onText = { choices.add("text") }, onLink = { choices.add("link") }, onFile = { choices.add("file") })
+            }
+        }
 
-        compose.onNodeWithText("Ready to send").assertExists()
-        assertEquals(null, chosenRetention)
-        compose.onNodeWithText("Keep for 7 days ▾").performClick()
-        compose.onNodeWithText("3 days").performClick()
-        compose.onNodeWithText("Send").performClick()
-
-        assertEquals(3, chosenRetention)
-        assertEquals(false, canceled)
+        compose.onNodeWithText("Write or paste a note").performClick()
+        compose.onNodeWithText("Send a web address").performClick()
+        compose.onNodeWithText("Choose a photo or document").performClick()
+        assertEquals(listOf("text", "link", "file"), choices)
     }
 
-    @Test fun preparedSendCanBeCanceledWithoutStartingUpload() {
-        var chosenRetention: Int? = null
-        var canceled = false
-        val draft = Draft("compose-cancel", "compose-cancel-key", "https://vault.example", "owner", text = "private note", displayName = "Text snippet", contentType = "text/plain", sizeBytes = 12, state = DraftState.PREPARED)
-        compose.setContent { MaterialTheme { PreparedSendCard(draft, onSend = { chosenRetention = it }, onCancel = { canceled = true }) } }
+    @Test fun textComposerRequiresContentAndPreservesExplicitTextIntent() {
+        var reviewed = 0
+        compose.setContent {
+            MaterialTheme {
+                var value by remember { mutableStateOf("") }
+                SendComposerScreen(ComposeKind.TEXT, value, "", null, false, null, { value = it }, {}, {}, { reviewed++ })
+            }
+        }
 
-        compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithText("Review send").assertIsNotEnabled()
+        compose.onNodeWithText("Text to send").performTextInput("https://example.com as literal text")
+        compose.onNodeWithText("Review send").performClick()
+        assertEquals(1, reviewed)
+    }
 
-        assertEquals(null, chosenRetention)
-        assertEquals(true, canceled)
+    @Test fun linkComposerRequiresSafeHttpUrlBeforeReview() {
+        var reviewed = 0
+        compose.setContent {
+            MaterialTheme {
+                var value by remember { mutableStateOf("") }
+                SendComposerScreen(ComposeKind.LINK, value, "", null, false, null, { value = it }, {}, {}, { reviewed++ })
+            }
+        }
+        compose.onNodeWithText("Review send").assertIsNotEnabled()
+        compose.onNodeWithText("https://…").performTextInput("https://example.com/path")
+        compose.onNodeWithText("Review send").performClick()
+        assertEquals(1, reviewed)
+    }
+
+    @Test fun reviewScreenShowsCompleteContentAndSendsWithChosenRetention() {
+        var sentRetention: Int? = null
+        val draft = Draft("compose-send", "compose-key", "https://vault.example", "owner", text = "complete private note content", displayName = "Text snippet", contentType = "text/plain", sizeBytes = 29, state = DraftState.PREPARED, contentKind = DraftContentKind.TEXT)
+        compose.setContent { MaterialTheme { ReviewSendScreen(draft, { sentRetention = it }, {}, {}) } }
+
+        compose.onNodeWithText("complete private note content").assertExists()
+        compose.onNodeWithText("Keep for 7 days · then delete").performClick()
+        compose.onNodeWithText("3 days").performClick()
+        compose.onNodeWithText("Send to Vault").performClick()
+        assertEquals(3, sentRetention)
+    }
+
+    @Test fun reviewDiscardRequiresExplicitConfirmation() {
+        var discarded = 0
+        val draft = Draft("discard-review", "discard-key", "https://vault.example", "owner", text = "note", displayName = "Text snippet", contentType = "text/plain", sizeBytes = 4, state = DraftState.PREPARED, contentKind = DraftContentKind.TEXT)
+        compose.setContent { MaterialTheme { ReviewSendScreen(draft, {}, {}, { discarded++ }) } }
+
+        compose.onNodeWithText("Discard").performClick()
+        assertEquals(0, discarded)
+        compose.onNodeWithText("Discard send").performClick()
+        assertEquals(1, discarded)
     }
 
     @Test fun pairingEntryRequiresInputAndExposesContinueAndScanActions() {

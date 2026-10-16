@@ -1,40 +1,39 @@
 # Android test coverage and follow-up
 
-This record tracks automated coverage for the Android client. A passing local build or Robolectric test does not establish that scanner hardware, Android background scheduling, browser/clipboard integration, document providers, or real network behavior works on a phone. Those checks remain in the physical-device matrix in [slice7-verification.md](slice7-verification.md).
+This record tracks automated Android client coverage. Passing local builds and Robolectric tests do not prove scanner hardware, Android system bars, browser launch, external content providers, or real device-network behavior. Physical checks are tracked in [slice7-verification.md](slice7-verification.md).
 
 ## Current automated coverage
 
 Last local command: `./scripts/test-android.ps1`
 
-Result: `assembleDebug`, `testDebugUnitTest` (47 tests), and `lintDebug` passed.
+Result: `assembleDebug`, `testDebugUnitTest` (52 tests), and `lintDebug` passed.
 
 | Feature area | Automated coverage | Main remaining checks |
 |---|---|---|
-| Pairing payload | QR/deep-link parsing, configured HTTPS origin, secret shape, expiry bounds, duplicate parameters, secret excluded from deep link | Real QR scan/camera permission; activity recreation during pairing; real pairing against production |
-| Pairing API | Pair request path/body, idempotency header, no cookie/bearer, token response validation | Pairing rate limit and expired/replayed session against live stack |
-| Share intake | Supported action/MIME/URI rules, duplicate and multiple streams, UTF-8 text limit, file size/name/MIME validation, spool byte cap/hash | Real Chrome/Gallery/Files/chat share intents; provider grants, revoked streams, and unknown metadata on device |
-| Send review and queue | Retention and prepared/cancel queue state; Compose test verifies explicit Send, selected retention, and Cancel | Full activity navigation from ACTION_SEND; screen reader/focus behavior; cold-start share during process recreation |
-| Upload API | Text idempotency/refresh tests; file initiate → streamed content → complete; progress and failed upload state preserve upload id | Live service cross-check for all server failure responses and largest-file performance |
-| WorkManager | Test worker executes a retry after file upload progress, retains upload id/key, resumes without re-initiation, and removes spool after success | OS scheduling after app force-stop, device reboot, Doze, and connectivity handoff |
-| Credentials and local data | Encrypted store round-trip, account-scoped Recent sends, chronological ordering, concurrent refresh, global revoke request/success/failure | Keystore behavior across supported OEM/API versions; sign-out racing real background work and account changes |
-| Inbox API | List cursor encoding, refresh-on-401 once, bounded limit, detail parsing, malformed response, expired item, owner mismatch | Backend contract drift remains covered by the separate API integration suite |
-| Inbox UI | Compose/Robolectric tests for empty state, refresh affordance, detail navigation, exact text display/copy | Populated multi-page list, foreground refresh, flaky/offline errors, URL external launch, actual picker/save lifecycle |
-| Attachment download | No redirect/cookies, authenticated route, required response headers, exact byte count, max size, hash mismatch and temp cleanup | Real Android filesystem pressure, provider failures, process death while picker is open |
-| Activity safety | Launch intent processing policy and debug-only demo-mode policy | Full ActivityScenario tests for incoming intents and exported component behavior on device |
+| Pairing | QR/deep-link parsing, configured HTTPS origin, secret shape/expiry, pairing API contract, Compose scan/paste control affordances | Real camera permission/scanning and pairing on phone |
+| In-app sending | Compose tests for Send/Text/Link/File choices, text/link validation, review, retention, explicit Send, and discard confirmation | MainActivity route integration, real file picker, 200% font scale/TalkBack |
+| Android Share | Payload action/MIME/URI rules, duplicate/multiple streams, byte/name/MIME constraints, encrypted spool; share routes to Review | Real Chrome/Gallery/Files/chat share intents, URI grants and Activity recreation |
+| Content type and API | Explicit Text stays text; Link calls URL endpoint; file initiate → stream → complete; idempotency, auth refresh, upload ID/progress preservation | Live-service response agreement for server throttling and failures |
+| WorkManager | Retry test proves file upload resumes with the persisted upload ID/key and removes spool on success | OS scheduling after force-stop, reboot, Doze and connectivity handoff |
+| Activity | Local owner scoping/order, retry and removal helpers, status labels | MainActivity state rendering and accessibility on physical screen |
+| Inbox | List/detail/download API contracts, pagination cursor encoding, Compose empty/detail/copy flow, safe links, hash/size/header checks | Multi-page UI, foreground/offline recovery, external browser, actual save picker/provider |
+| Account/security | Encrypted local storage, refresh/revoke contracts, release demo-mode guard, saved intent policy | Hardware Keystore behavior and sign-out racing real background operations |
+| System UI | `enableEdgeToEdge`, Material 3 `Scaffold`, top/bottom bar inset ownership, `adjustResize`, composer IME insets compile and lint | Visual confirmation across API 35/36, gesture/three-button navigation, cutouts and IME |
 
-## Follow-up automated test work
+## Focused follow-up
 
-1. Add screen/state tests for pairing success/error/expiry, share-to-review navigation and intent recreation, all Recent sends states, inbox pagination/error/retry/foreground refresh, URL-open dispatch, and sign-out confirmation.
-2. Expand MockWebServer cases for every endpoint's 401/403/404/410/413/429/5xx behavior, malformed payloads, response loss, and refresh races.
-3. Add lifecycle tests for cancellation and stale responses after Back, owner change, sign-out, and activity recreation. Define cleanup ownership for private download temp files across process death.
-4. Add test seams only where needed: narrow API/action interfaces, injected time/dispatchers, and worker dependencies. Keep the tests deterministic and keep Android CI scoped to `android/**`.
-5. Run the physical-device matrix separately: Chrome text/URL, Gallery image, Files document, QR scanning, clipboard/browser, document provider save/cancel/failure, Keystore, worker retry after backgrounding/process death, Wi-Fi/cellular/offline recovery, expiry/revocation, and both internet transfer directions.
+1. Add Activity-level tests for pairing, cold/warm `ACTION_SEND`, navigation, review/send, Activity states, and sign-out routing.
+2. Test the Inbox UI’s pagination, foreground refresh, API error/retry, URL intent dispatch and save-picker lifecycle.
+3. Use an emulator/phone to verify system-bar geometry, keyboard overlap, large text, TalkBack, camera/QR, clipboard/browser and document providers.
+4. Keep device-specific tests distinct from fast local tests; do not make the server/web deploy workflow run Android checks.
 
-## Recent regressions guarded
+## Recent product fixes
 
-- A successful share selects **Recent sends** so its review card is visible.
-- A restored Activity does not consume its launch intent again; pairing state is restored without putting the pairing secret in saved instance state.
-- Release builds ignore the demo-mode intent flag.
-- Recent sends are scoped to the paired origin/account and sorted by recorded creation time.
-- File upload progress updates preserve the server upload id and idempotency key across a retry.
-- Pairing has a busy guard, masks the manual secret field, and scrolls on compact screens. Global sign-out requires confirmation.
+- Paired navigation is **Send / Inbox / Activity**; in-app send supports Text, Link and File.
+- In-app content type is explicit, so URL-looking text remains text.
+- In-app sends and Android Share both reach the same full-content review and retention step before upload.
+- Android Share opens Review after preparing the item; restored Activity does not consume its launch intent again.
+- Recent local sends are scoped to the paired owner and chronologically sorted.
+- File progress preserves the upload ID and idempotency key through WorkManager retry.
+- The exported demo path is debug-only; pairing is busy guarded and masks the manual secret.
+- App chrome uses edge-to-edge Material 3 scaffold insets; physical visual acceptance remains pending.

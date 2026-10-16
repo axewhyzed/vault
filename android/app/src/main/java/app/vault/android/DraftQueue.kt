@@ -7,7 +7,7 @@ class DraftQueue(
 ) {
     fun prepare(draft: Draft): Draft {
         require(draft.retentionDays in 1..7)
-        val prepared = draft.copy(state = DraftState.PREPARED, retentionDays = 7, safeError = null)
+        val prepared = draft.copy(state = DraftState.PREPARED, safeError = null)
         store.saveDraft(prepared)
         return prepared
     }

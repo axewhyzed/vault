@@ -75,6 +75,47 @@ class RetryRequestTest {
         } finally { server.shutdown() }
     }
 
+    @Test fun explicitTextIntentDoesNotTurnUrlLookingTextIntoALink() {
+        val server = MockWebServer(); server.start()
+        try {
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            val store = EncryptedStore(context, VaultCrypto(KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()))
+            val origin = server.url("/").toString().trimEnd('/')
+            store.saveCredentials(Credentials(origin, "va1_access", "2099-01-01T00:00:00Z", "vr1_refresh", "2099-02-01T00:00:00Z", "owner", "device"))
+            server.enqueue(MockResponse().setResponseCode(201).setBody("{}"))
+            val value = "https://example.com is literal text"
+            val draft = Draft("explicit-text", "explicit-text-key", origin, "owner", text = value, displayName = "Text", contentType = "text/plain", sizeBytes = value.toByteArray().size.toLong(), contentKind = DraftContentKind.TEXT)
+
+            VaultApi(store).upload(draft)
+
+            val request = server.takeRequest()
+            assertEquals("/api/v1/items/text", request.path)
+            assertEquals(value, org.json.JSONObject(request.body.readUtf8()).getString("text"))
+        } finally { server.shutdown() }
+    }
+
+    @Test fun explicitLinkIntentUsesUrlEndpointAndRejectsUnsafeLinkBeforeNetwork() {
+        val server = MockWebServer(); server.start()
+        try {
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            val store = EncryptedStore(context, VaultCrypto(KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()))
+            val origin = server.url("/").toString().trimEnd('/')
+            store.saveCredentials(Credentials(origin, "va1_access", "2099-01-01T00:00:00Z", "vr1_refresh", "2099-02-01T00:00:00Z", "owner", "device"))
+            server.enqueue(MockResponse().setResponseCode(201).setBody("{}"))
+            val link = "https://example.com/path"
+            val draft = Draft("explicit-url", "explicit-url-key", origin, "owner", text = link, displayName = "Example", contentType = "text/uri-list", sizeBytes = link.toByteArray().size.toLong(), contentKind = DraftContentKind.URL)
+
+            VaultApi(store).upload(draft)
+
+            val request = server.takeRequest()
+            assertEquals("/api/v1/items/url", request.path)
+            assertEquals(link, org.json.JSONObject(request.body.readUtf8()).getString("url"))
+            val unsafe = assertThrows(ApiFailure::class.java) { VaultApi(store).upload(draft.copy(id = "unsafe-url", text = "javascript:alert(1)")) }
+            assertEquals("invalid_url", unsafe.code)
+            assertEquals(1, server.requestCount)
+        } finally { server.shutdown() }
+    }
+
     @Test fun concurrentExpiredUploadsShareOneRefreshAndKeepSession() {
         val server = MockWebServer(); server.start()
         val executor = Executors.newFixedThreadPool(2)

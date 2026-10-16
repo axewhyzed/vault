@@ -159,9 +159,9 @@ adb install -r vault-debug-v0.1.0.apk
 2. Open the Vault app on Android and tap **Scan QR** (or paste the JSON/deep-link).
 3. Verify your device name and tap **Pair phone**.
 
-Your phone is now connected! You can now use the Android Share menu in any app to send text, URLs, and files directly to your PC.
+Your phone is now paired with Vault. In the app, choose **Send** to write text, add a link, or pick a file, review it, and send it. You can also send from Android's **Share** menu. Use **Inbox** to retrieve PC-sent items and **Activity** to check your sends.
 
-Open **Inbox** in the paired app to retrieve recent items sent from the PC. The inbox loads when the app opens or returns to the foreground; use **Refresh** and **Load more** for explicit retrieval. See [Android receive](docs/android-receive.md) for item actions, local build commands, and the current verification boundary.
+The Inbox loads when the app opens or returns to the foreground; use **Refresh** and **Load more** for explicit retrieval. See [Android send](docs/android-send.md) and [Android receive](docs/android-receive.md) for the phone workflows, build commands, and verification boundaries.
 
 ---
 

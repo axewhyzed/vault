@@ -1,10 +1,10 @@
 # Android receive inbox
 
-Slice 7 adds a read-only Android view of recent items owned by the paired Vault account. The inbox is retrieved when the paired app opens or returns to the foreground, and after pairing. It also provides **Refresh** and cursor-based **Load more** controls. The inbox list lives only in the current UI session; the app does not persist or serve a cached inbox.
+The paired app has three destinations: **Send**, **Inbox**, and **Activity**. This guide covers receiving recent items owned by the paired Vault account. The inbox is retrieved when the paired app opens or returns to the foreground, and after pairing. It also provides **Refresh** and cursor-based **Load more** controls. The inbox list lives only in the current UI session; the app does not persist or serve a cached inbox.
 
 ## Navigation and item actions
 
-The paired app opens on **Inbox**. **Inbox** is a tab beside **Recent sends**; the existing status and sign-out controls remain above the tabs. Tap an item row to open its detail view, then use the action for its type:
+Tap an item row in **Inbox** to open its detail view, then use the action for its type:
 
 - **Text:** inspect and copy the text to the Android clipboard.
 - **URL:** open only a valid absolute HTTP or HTTPS URL, with no credentials, in an external app such as the browser. Vault does not fetch the URL or show a preview.
