@@ -6,10 +6,17 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl
+import okhttp3.CookieJar
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okio.BufferedSink
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 class ApiFailure(val status: Int, val code: String, message: String) : Exception(message)
@@ -103,6 +110,155 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
             return result.copy(state = DraftState.AVAILABLE, safeError = null)
         }
     }
+
+    fun listItems(cursor: String? = null, limit: Int = 30): InboxPage {
+        if (limit !in 1..100) throw ApiFailure(400, "invalid_limit", "The inbox page size is invalid.")
+        val credentials = store.credentials() ?: throw ApiFailure(401, "sign_in_required", "Pair this device again.")
+        val base = apiBase(credentials.origin) ?: throw ApiFailure(401, "invalid_origin", "This device needs to be paired again.")
+        fun request(token: String): okhttp3.Response {
+            val url = base.newBuilder().addPathSegments("api/v1/items").addQueryParameter("limit", limit.toString())
+                .apply { if (cursor != null) addQueryParameter("cursor", cursor) }.build()
+            return client.newCall(Request.Builder().url(url).header("Accept", "application/json")
+                .header("Cache-Control", "no-store").header("Authorization", "Bearer $token").get().build()).execute()
+        }
+        val current = CredentialRefreshCoordinator.current(store, credentials.origin, credentials.userId, ::refresh)
+        val response = request(current.accessToken)
+        val finalResponse = if (response.code == 401) {
+            response.close()
+            val rotated = CredentialRefreshCoordinator.afterUnauthorized(store, credentials.origin, credentials.userId, current.accessToken, ::refresh)
+            request(rotated.accessToken)
+        } else response
+        return finalResponse.use { res ->
+            if (!res.isSuccessful) throw inboxFailure(res.code)
+            val json = try { JSONObject(res.body?.string().orEmpty()) } catch (_: Exception) { throw malformedInbox() }
+            try {
+                val itemsJson = json.getJSONArray("items")
+                val items = (0 until itemsJson.length()).map { parseSummary(itemsJson.getJSONObject(it), credentials) }
+                val quotaJson = json.getJSONObject("quota")
+                InboxPage(items, json.optString("nextCursor").takeUnless { it.isEmpty() || it == "null" }, InboxQuota(
+                    quotaJson.getLong("activeBytes"), quotaJson.getLong("maxActiveBytes"), quotaJson.getLong("activeItems"), quotaJson.getInt("maxActiveItems")))
+            } catch (_: Exception) { throw malformedInbox() }
+        }
+    }
+
+    fun getItem(id: String): InboxDetail {
+        val itemId = canonicalUuid(id) ?: throw ApiFailure(400, "invalid_item_id", "This inbox item could not be opened.")
+        val credentials = store.credentials() ?: throw ApiFailure(401, "sign_in_required", "Pair this device again.")
+        val base = apiBase(credentials.origin) ?: throw ApiFailure(401, "invalid_origin", "This device needs to be paired again.")
+        fun request(token: String) = client.newCall(Request.Builder().url(base.newBuilder().addPathSegments("api/v1/items").addPathSegment(itemId).build())
+            .header("Accept", "application/json").header("Cache-Control", "no-store").header("Authorization", "Bearer $token").get().build()).execute()
+        val current = CredentialRefreshCoordinator.current(store, credentials.origin, credentials.userId, ::refresh)
+        val response = request(current.accessToken)
+        val finalResponse = if (response.code == 401) {
+            response.close()
+            val rotated = CredentialRefreshCoordinator.afterUnauthorized(store, credentials.origin, credentials.userId, current.accessToken, ::refresh)
+            request(rotated.accessToken)
+        } else response
+        return finalResponse.use { res ->
+            if (!res.isSuccessful) throw inboxFailure(res.code)
+            val json = try { JSONObject(res.body?.string().orEmpty()) } catch (_: Exception) { throw malformedInbox() }
+            try {
+                val summary = parseSummary(json, credentials)
+                if (summary.id != itemId) throw IllegalArgumentException()
+                val text = if (json.isNull("text")) null else json.getString("text")
+                val downloadUrl = if (json.isNull("downloadUrl")) null else json.getString("downloadUrl")
+                val sha256 = if (json.isNull("sha256")) null else json.getString("sha256")
+                summary.asDetail(text, json.getString("contentType"), downloadUrl, sha256)
+            } catch (_: Exception) { throw malformedInbox() }
+        }
+    }
+
+    fun downloadToTemp(detail: InboxDetail, onProgress: (Long) -> Unit = {}): File {
+        val itemId = canonicalUuid(detail.id) ?: throw ApiFailure(400, "invalid_item_id", "This inbox item could not be downloaded.")
+        if (detail.type != "file" || detail.downloadUrl != "/api/v1/items/$itemId/download" || detail.sizeBytes !in 0..MAX_INBOX_FILE_BYTES ||
+            detail.sha256?.matches(Regex("[0-9a-fA-F]{64}")) != true) {
+            throw ApiFailure(400, "invalid_download", "This file cannot be downloaded safely.")
+        }
+        val expected = store.credentials() ?: throw ApiFailure(401, "sign_in_required", "Pair this device again.")
+        if (detail.ownerOrigin.isBlank() || detail.ownerUserId.isBlank() || !expected.origin.equals(detail.ownerOrigin, true) || expected.userId != detail.ownerUserId) {
+            throw ApiFailure(401, "draft_owner_mismatch", "This item belongs to a different Vault account.")
+        }
+        val base = apiBase(detail.ownerOrigin) ?: throw ApiFailure(401, "invalid_origin", "This device needs to be paired again.")
+        val url = base.newBuilder().addPathSegments("api/v1/items").addPathSegment(itemId).addPathSegment("download").build()
+        val noRedirectClient = client.newBuilder().followRedirects(false).followSslRedirects(false).cookieJar(CookieJar.NO_COOKIES).build()
+        fun request(token: String) = noRedirectClient.newCall(Request.Builder().url(url).header("Accept", "application/octet-stream")
+            .header("Cache-Control", "no-store").header("Authorization", "Bearer $token").get().build()).execute()
+        val current = CredentialRefreshCoordinator.current(store, detail.ownerOrigin, detail.ownerUserId, ::refresh)
+        val response = request(current.accessToken)
+        val finalResponse = if (response.code == 401) {
+            response.close()
+            val rotated = CredentialRefreshCoordinator.afterUnauthorized(store, detail.ownerOrigin, detail.ownerUserId, current.accessToken, ::refresh)
+            request(rotated.accessToken)
+        } else response
+        val temp = try { File.createTempFile("vault-inbox-", ".part", File(System.getProperty("java.io.tmpdir") ?: ".")) }
+        catch (_: IOException) { throw ApiFailure(503, "download_storage_unavailable", "There is not enough private storage to download this file.") }
+        return try {
+            finalResponse.use { res ->
+                if (res.code != 200) throw inboxFailure(res.code)
+                val disposition = res.header("Content-Disposition")?.trim()
+                if (res.header("Content-Range") != null || disposition?.matches(Regex("(?i)^attachment(?:\\s*;.*)?$")) != true ||
+                    !res.header("X-Content-Type-Options").equals("nosniff", true) ||
+                    !res.header("Cache-Control").orEmpty().contains("no-store", true)) {
+                    throw ApiFailure(502, "invalid_download_response", "The server returned an unexpected file response.")
+                }
+                val body = res.body ?: throw ApiFailure(502, "invalid_download_response", "The server returned an empty file response.")
+                if (body.contentLength() >= 0 && body.contentLength() != detail.sizeBytes) throw ApiFailure(502, "invalid_download_size", "The downloaded file did not match its expected size.")
+                val digest = MessageDigest.getInstance("SHA-256")
+                var received = 0L
+                FileOutputStream(temp).use { output ->
+                    body.byteStream().use { input ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            if (received + count > MAX_INBOX_FILE_BYTES || received + count > detail.sizeBytes) {
+                                throw ApiFailure(502, "invalid_download_size", "The downloaded file exceeded its expected size.")
+                            }
+                            output.write(buffer, 0, count)
+                            digest.update(buffer, 0, count)
+                            received += count
+                            onProgress(received)
+                        }
+                    }
+                }
+                if (received != detail.sizeBytes) throw ApiFailure(502, "invalid_download_size", "The downloaded file did not match its expected size.")
+                val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
+                if (!actualHash.equals(detail.sha256, true)) throw ApiFailure(502, "invalid_download_hash", "The downloaded file could not be verified.")
+            }
+            temp
+        } catch (e: Exception) {
+            temp.delete()
+            if (e is ApiFailure) throw e
+            if (e is IOException) throw ApiFailure(503, "download_interrupted", "The file download was interrupted. Try again.")
+            throw ApiFailure(502, "download_failed", "The file could not be downloaded safely.")
+        }
+    }
+
+    private fun apiBase(origin: String): HttpUrl? = "$origin/".toHttpUrlOrNull()?.takeIf { it.encodedPath == "/" && it.query == null && it.fragment == null && it.username.isEmpty() && it.password.isEmpty() }
+
+    private fun parseSummary(json: JSONObject, credentials: Credentials): InboxSummary {
+        val id = canonicalUuid(json.getString("id")) ?: throw IllegalArgumentException()
+        val type = json.getString("type")
+        if (type !in setOf("text", "url", "file")) throw IllegalArgumentException()
+        return InboxSummary(id, type, json.getString("state"), json.getString("displayName"), json.getLong("sizeBytes"),
+            json.getString("createdAt"), json.getString("availableAt"), json.getString("expiresAt"), json.getInt("version"),
+            json.getJSONObject("sourceDevice").let { InboxSourceDevice(it.getString("id"), it.getString("name"), it.getString("platform")) },
+            credentials.origin, credentials.userId)
+    }
+
+    private fun canonicalUuid(value: String): String? = try { UUID.fromString(value).toString().takeIf { it.equals(value, true) } } catch (_: Exception) { null }
+
+    private fun inboxFailure(status: Int): ApiFailure = when (status) {
+        401, 403 -> ApiFailure(401, "sign_in_required", "Session expired or revoked. Pair this device again.")
+        404 -> ApiFailure(404, "item_not_found", "This inbox item was not found.")
+        410 -> ApiFailure(410, "item_expired", "This inbox item has expired.")
+        503 -> ApiFailure(503, "service_unavailable", "Vault is temporarily unavailable. Try again shortly.")
+        else -> ApiFailure(status, "inbox_request_failed", "The inbox request could not be completed.")
+    }
+
+    private fun malformedInbox() = ApiFailure(502, "invalid_inbox_response", "Vault returned an invalid inbox response.")
+
+    companion object { private const val MAX_INBOX_FILE_BYTES = 100_000_000L }
 
     private fun refresh(old: Credentials): Credentials {
         val body = JSONObject().put("refreshToken", old.refreshToken).toString()

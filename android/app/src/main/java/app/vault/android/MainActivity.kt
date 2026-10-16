@@ -33,6 +33,7 @@ class MainActivity : ComponentActivity() {
     private var secret by mutableStateOf("")
     private var deviceName by mutableStateOf(android.os.Build.MODEL.take(100))
     private var refreshCounter by mutableIntStateOf(0)
+    private var foregroundToken by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +42,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIncoming(intent) }
+
+    override fun onResume() { super.onResume(); foregroundToken++ }
 
     private fun parsePairing(raw: String) {
         try {
@@ -145,6 +148,7 @@ class MainActivity : ComponentActivity() {
         val scope = rememberCoroutineScope()
         val credentials = remember(refreshCounter) { store.credentials() }
         val drafts = remember(refreshCounter) { store.allDrafts() }
+        var selectedTab by remember(credentials?.userId) { mutableStateOf("Inbox") }
         LaunchedEffect(credentials?.deviceId, drafts.any { it.state == DraftState.QUEUED || it.state == DraftState.UPLOADING || it.state == DraftState.RETRYING }) {
             while (credentials != null && drafts.any { it.state == DraftState.QUEUED || it.state == DraftState.UPLOADING || it.state == DraftState.RETRYING }) {
                 delay(1000); refreshCounter++
@@ -188,6 +192,10 @@ class MainActivity : ComponentActivity() {
                         }
                     } else {
                         Text("Paired with ${credentials.origin}")
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(selected = selectedTab == "Inbox", onClick = { selectedTab = "Inbox" }, label = { Text("Inbox") }, modifier = Modifier.heightIn(min = 48.dp))
+                            FilterChip(selected = selectedTab == "Recent sends", onClick = { selectedTab = "Recent sends" }, label = { Text("Recent sends") }, modifier = Modifier.heightIn(min = 48.dp))
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = { refreshCounter++ }) { Text("Refresh status") }
                             Button(onClick = { scope.launch {
@@ -197,9 +205,12 @@ class MainActivity : ComponentActivity() {
                                 refreshCounter++
                             } }) { Text("Sign out everywhere") }
                         }
-                        Text("Recent sends", style = MaterialTheme.typography.titleLarge)
-                        if (drafts.isEmpty()) Text("Shared items will appear here.")
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (selectedTab == "Inbox") {
+                            InboxTab(vaultApi(this@MainActivity), store, "${credentials.origin}|${credentials.userId}|${credentials.deviceId}", foregroundToken, Modifier.weight(1f))
+                        } else {
+                            Text("Recent sends", style = MaterialTheme.typography.titleLarge)
+                            if (drafts.isEmpty()) Text("Shared items will appear here.")
+                            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(drafts, key = { it.id }) { draft ->
                                 if (draft.state == DraftState.PREPARED) {
                                     PreparedSendCard(draft,
@@ -214,6 +225,7 @@ class MainActivity : ComponentActivity() {
                                     if (draft.state == DraftState.FAILED) TextButton(onClick = { UploadWorker.cancel(this@MainActivity, draft.id); store.deleteDraft(draft.id); refreshCounter++ }) { Text("Remove failed send") }
                                 } }
                             }
+                        }
                         }
                     }
                     if (statusMessage.isNotBlank()) Text(statusMessage, color = MaterialTheme.colorScheme.primary)

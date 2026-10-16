@@ -24,7 +24,7 @@
 
 **Vault** is a single-owner, zero-cloud relay that bridges your phone and computer without relying on commercial sync clouds, third-party relays, or message history retention. 
 
-Share links, snippets, photos, and files up to 100 MB directly from Android's native share sheet into your private desktop browser inbox. Everything expires automatically within 1 to 7 days, keeping your workspace lean and clutter-free.
+Share links, snippets, photos, and files up to 100 MB from Android's native share sheet into your private desktop browser inbox, then retrieve recent owner items in the Android app. The Android inbox is read-only: text can be copied, HTTP(S) links open in the browser, and verified files can be saved through Android's document picker. Retrieval is on app open/foreground and manual refresh; there are no push alerts or cached inbox. Items expire automatically within 1 to 7 days.
 
 ---
 
@@ -160,6 +160,8 @@ adb install -r vault-debug-v0.1.0.apk
 3. Verify your device name and tap **Pair phone**.
 
 Your phone is now connected! You can now use the Android Share menu in any app to send text, URLs, and files directly to your PC.
+
+Open **Inbox** in the paired app to retrieve recent items sent from the PC. The inbox loads when the app opens or returns to the foreground; use **Refresh** and **Load more** for explicit retrieval. See [Android receive](docs/android-receive.md) for item actions, local build commands, and the current verification boundary.
 
 ---
 
