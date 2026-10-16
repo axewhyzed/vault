@@ -17,7 +17,7 @@ This runs Android `assembleDebug`, `testDebugUnitTest`, and `lintDebug`. These a
 
 | Check | Status |
 |---|---|
-| Android local build, 47 JVM/Robolectric tests (including Compose screens and a WorkManager retry), and lint via `scripts/test-android.ps1` | Passed locally after Slice 7 quality fixes; source-level test matrix is in `docs/android-test-coverage.md` |
+| Android local build, 52 JVM/Robolectric tests (including Compose screens and a WorkManager retry), and lint via `scripts/test-android.ps1` | Passed locally after the Android UX refresh; source-level test matrix is in `docs/android-test-coverage.md` |
 | Backend/API and web checks via `scripts/test.ps1` | Passed locally with Docker: 36 API tests, HTTPS/PostgreSQL integration scenarios, web build and lint |
 | Physical-device acceptance below | Pending |
 | Internet phone-to-PC/PC-to-phone flow | Pending |
@@ -32,7 +32,9 @@ Run with a paired physical Android phone and a trusted HTTPS origin. Include dev
 
 | Scenario | Status | Result / evidence |
 |---|---|---|
-| Paired app opens on Inbox and retrieves the newest owner items | Pending | |
+| Paired app opens on Send and shows Send / Inbox / Activity navigation | Pending | |
+| In-app Text, Link, and File compose → review → explicit send works and preserves the chosen content type | Pending | |
+| Android Share text/link/file enters the same review flow before upload | Pending | |
 | Returning to the foreground refreshes the first page | Pending | |
 | Manual Refresh replaces the first page; Load more appends the next cursor page without duplicates | Pending | |
 | Empty inbox, API unavailable, and retry states are understandable and recover after reconnect | Pending | |

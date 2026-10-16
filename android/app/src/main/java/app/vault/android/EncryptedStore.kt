@@ -55,6 +55,7 @@ class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCr
     }
     fun spool(name: String): InputStream = crypto.decrypting(FileInputStream(spoolFile(name)))
     fun hasSpool(name: String?) = name != null && spoolFile(name).isFile
+    fun deleteSpool(name: String?) { name?.let { spoolFile(it).delete() } }
     private fun writeEncrypted(file: File, bytes: ByteArray) {
         val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeBytes(crypto.encrypt(bytes))

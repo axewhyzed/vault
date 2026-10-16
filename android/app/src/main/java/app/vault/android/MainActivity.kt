@@ -5,8 +5,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.IntentCompat
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +28,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
 import java.util.UUID
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
+
+private enum class VaultDestination { SEND, INBOX, ACTIVITY }
+private enum class NoticeTone { INFO, SUCCESS, ERROR }
 
 class MainActivity : ComponentActivity() {
     private val store by lazy { EncryptedStore(this) }
@@ -37,16 +48,28 @@ class MainActivity : ComponentActivity() {
     private var deviceName by mutableStateOf(android.os.Build.MODEL.take(100))
     private var refreshCounter by mutableIntStateOf(0)
     private var foregroundToken by mutableIntStateOf(0)
-    private var selectedTab by mutableStateOf("Inbox")
+    private var selectedDestination by mutableStateOf(VaultDestination.SEND)
+    private var composeKind by mutableStateOf<ComposeKind?>(null)
+    private var composeText by mutableStateOf("")
+    private var composeName by mutableStateOf("")
+    private var composeFileDraft by mutableStateOf<Draft?>(null)
+    private var editingDraftId by mutableStateOf<String?>(null)
+    private var reviewDraftId by mutableStateOf<String?>(null)
+    private var accountScreen by mutableStateOf(false)
+    private var preparingFile by mutableStateOf(false)
     private var pairingInProgress by mutableStateOf(false)
     private var signOutConfirmation by mutableStateOf(false)
     private var signOutInProgress by mutableStateOf(false)
+    private var statusTone by mutableStateOf(NoticeTone.INFO)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val processLaunchIntent = shouldHandleLaunchIntent(savedInstanceState != null)
         if (savedInstanceState != null) {
-            selectedTab = savedInstanceState.getString(STATE_SELECTED_TAB, "Inbox")
+            selectedDestination = runCatching { VaultDestination.valueOf(savedInstanceState.getString(STATE_SELECTED_TAB, "SEND")) }.getOrDefault(VaultDestination.SEND)
+            reviewDraftId = savedInstanceState.getString(STATE_REVIEW_DRAFT_ID)
+            accountScreen = savedInstanceState.getBoolean(STATE_ACCOUNT_SCREEN, false)
             pasteText = ""
             secret = ""
             deviceName = savedInstanceState.getString(STATE_DEVICE_NAME, deviceName)
@@ -64,7 +87,9 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleIncoming(intent); setIntent(Intent(this, MainActivity::class.java)) }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putString(STATE_SELECTED_TAB, selectedTab)
+        outState.putString(STATE_SELECTED_TAB, selectedDestination.name)
+        outState.putString(STATE_REVIEW_DRAFT_ID, reviewDraftId)
+        outState.putBoolean(STATE_ACCOUNT_SCREEN, accountScreen)
         outState.putString(STATE_DEVICE_NAME, deviceName)
         outState.putString(STATE_STATUS, statusMessage)
         pairingDeadline?.let { outState.putLong(STATE_PAIRING_DEADLINE, it) }
@@ -78,14 +103,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() { super.onResume(); foregroundToken++ }
 
+    private fun showStatus(message: String, tone: NoticeTone = NoticeTone.INFO) {
+        statusMessage = message
+        statusTone = tone
+    }
+
     private fun parsePairing(raw: String) {
         try {
             val parsed = PairingPayload.parse(raw, BuildConfig.PAIRING_SERVER_ORIGIN)
             payload = parsed
             pairingDeadline = parsed.expiresAt?.let { java.time.Instant.parse(it).toEpochMilli() } ?: System.currentTimeMillis() + 10 * 60_000L
             secret = parsed.pairingSecret.orEmpty()
-            statusMessage = "Pairing details ready."
-        } catch (e: Exception) { payload = null; pairingDeadline = null; secret = ""; statusMessage = e.message ?: "Could not read pairing details." }
+            showStatus("Pairing details ready.")
+        } catch (e: Exception) { payload = null; pairingDeadline = null; secret = ""; showStatus(e.message ?: "Could not read pairing details.", NoticeTone.ERROR) }
     }
 
     private fun handleIncoming(intent: Intent?) {
@@ -123,7 +153,7 @@ class MainActivity : ComponentActivity() {
                 bytesSent = 284,
                 state = DraftState.AVAILABLE
             ))
-            statusMessage = "Paired with Vault server."
+            showStatus("Paired with Vault server.", NoticeTone.SUCCESS)
             refreshCounter++
         }
         if (intent?.action == Intent.ACTION_VIEW) intent.dataString?.let(::parsePairing)
@@ -136,7 +166,7 @@ class MainActivity : ComponentActivity() {
                 val unique = uris.distinctBy { it.toString() }
                 val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)
                 val share = SharePayload.from(intent.action, intent.type, text, unique.map(Uri::toString))
-                val credentials = store.credentials() ?: throw IllegalStateException("Pair this device before sharing.")
+                val credentials = store.credentials() ?: throw IllegalStateException("Pair this phone first, then share the item again.")
                 val origin = credentials.origin
                 val draftId = UUID.randomUUID().toString()
                 val draft = withContext(Dispatchers.IO) {
@@ -154,10 +184,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 draftQueue().prepare(draft)
-                selectedTab = "Recent sends"
-                statusMessage = "Review your send before uploading."
+                selectedDestination = VaultDestination.SEND
+                reviewDraftId = draft.id
+                showStatus("Review your send before uploading.")
                 refreshCounter++
-            } catch (e: Exception) { statusMessage = e.message ?: "Could not accept this share." }
+            } catch (e: Exception) { showStatus(e.message ?: "Could not accept this share.", NoticeTone.ERROR) }
         }
     }
 
@@ -176,36 +207,196 @@ class MainActivity : ComponentActivity() {
         return safeSharedFileName(name) to safeSharedMimeType(contentResolver.getType(uri))
     }
 
+    private fun openComposer(kind: ComposeKind, draftId: String? = null) {
+        val draft = draftId?.let(store::draft)
+        editingDraftId = draft?.id
+        composeKind = kind
+        composeText = draft?.text.orEmpty()
+        composeName = draft?.displayName.orEmpty()
+        composeFileDraft = if (kind == ComposeKind.FILE) draft else null
+        accountScreen = false
+        reviewDraftId = null
+        selectedDestination = VaultDestination.SEND
+    }
+
+    private fun leaveComposer() {
+        composeKind = null
+        composeText = ""
+        composeName = ""
+        composeFileDraft = null
+        editingDraftId = null
+        selectedDestination = VaultDestination.SEND
+    }
+
+    private fun reviewComposer() {
+        val kind = composeKind ?: return
+        val credentials = store.credentials() ?: run {
+            showStatus("Pair this phone before sending.", NoticeTone.ERROR)
+            return
+        }
+        val original = editingDraftId?.let(store::draft)
+        val candidate = when (kind) {
+            ComposeKind.FILE -> composeFileDraft ?: return
+            ComposeKind.TEXT, ComposeKind.LINK -> {
+                val value = if (kind == ComposeKind.LINK) composeText.trim() else composeText
+                if (kind == ComposeKind.TEXT && (!isShareTextWithinLimit(value) || value.isBlank())) {
+                    showStatus(if (value.isBlank()) "Enter some text to send." else "Text exceeds the 256 KB limit.", NoticeTone.ERROR)
+                    return
+                }
+                if (kind == ComposeKind.LINK && (!isSafeExternalHttpUrl(value) || !isShareTextWithinLimit(value))) {
+                    showStatus("Enter a complete HTTP or HTTPS link under 256 KB.", NoticeTone.ERROR)
+                    return
+                }
+                val displayName = composeName.trim().ifBlank {
+                    if (kind == ComposeKind.TEXT) "Text snippet" else runCatching { java.net.URI(value).host }.getOrNull() ?: "Link"
+                }
+                val contentKind = if (kind == ComposeKind.TEXT) DraftContentKind.TEXT else DraftContentKind.URL
+                val contentType = if (kind == ComposeKind.TEXT) "text/plain" else "text/uri-list"
+                val size = value.toByteArray(Charsets.UTF_8).size.toLong()
+                if (original != null) original.copy(
+                    text = value, spoolName = null, sha256 = null, uploadId = null,
+                    displayName = displayName, contentType = contentType, sizeBytes = size,
+                    bytesSent = 0, state = DraftState.PREPARED, safeError = null, contentKind = contentKind,
+                ) else Draft(
+                    id = UUID.randomUUID().toString(), idempotencyKey = UUID.randomUUID().toString(),
+                    serverOrigin = credentials.origin, ownerUserId = credentials.userId,
+                    text = value, displayName = displayName, contentType = contentType,
+                    sizeBytes = size, state = DraftState.PREPARED, contentKind = contentKind,
+                )
+            }
+        }
+        val prepared = draftQueue().prepare(candidate.copy(displayName = composeName.trim().ifBlank { candidate.displayName }))
+        reviewDraftId = prepared.id
+        composeKind = null
+        accountScreen = false
+        refreshCounter++
+    }
+
+    private fun preparePickedFile(uri: Uri) {
+        val credentials = store.credentials() ?: run {
+            showStatus("Pair this phone before sending a file.", NoticeTone.ERROR)
+            return
+        }
+        val existing = editingDraftId?.let(store::draft)
+        val oldSpool = existing?.spoolName
+        preparingFile = true
+        lifecycleScope.launch {
+            var newSpoolName: String? = null
+            try {
+                val candidate = withContext(Dispatchers.IO) {
+                    val metadata = contentMetadata(uri)
+                    val spoolName = UUID.randomUUID().toString()
+                    newSpoolName = spoolName
+                    val input = contentResolver.openInputStream(uri)
+                        ?: throw IllegalArgumentException("This file is no longer available. Choose it again.")
+                    val result = input.use { store.createSpool(spoolName, it) }
+                    val base = existing ?: Draft(
+                        id = UUID.randomUUID().toString(), idempotencyKey = UUID.randomUUID().toString(),
+                        serverOrigin = credentials.origin, ownerUserId = credentials.userId,
+                        displayName = metadata.first, contentType = metadata.second, sizeBytes = result.sizeBytes,
+                    )
+                    base.copy(
+                        text = null, spoolName = spoolName, sha256 = result.sha256,
+                        displayName = composeName.trim().ifBlank { metadata.first }, contentType = metadata.second,
+                        sizeBytes = result.sizeBytes, bytesSent = 0, uploadId = null,
+                        state = DraftState.PREPARED, safeError = null, contentKind = DraftContentKind.FILE,
+                    )
+                }
+                val prepared = draftQueue().prepare(candidate)
+                if (oldSpool != null && oldSpool != newSpoolName) store.deleteSpool(oldSpool)
+                composeFileDraft = prepared
+                composeName = prepared.displayName
+                showStatus("File ready to review.", NoticeTone.SUCCESS)
+                refreshCounter++
+            } catch (e: Exception) {
+                store.deleteSpool(newSpoolName)
+                showStatus(e.message ?: "Could not prepare that file.", NoticeTone.ERROR)
+            } finally { preparingFile = false }
+        }
+    }
+
+    private fun backFromFullScreen() {
+        when {
+            accountScreen -> accountScreen = false
+            reviewDraftId != null -> {
+                reviewDraftId = null
+                selectedDestination = VaultDestination.ACTIVITY
+            }
+            composeKind != null -> {
+                val preparedFileId = composeFileDraft?.id
+                composeKind = null
+                composeFileDraft = null
+                editingDraftId = null
+                selectedDestination = if (preparedFileId != null) VaultDestination.ACTIVITY else VaultDestination.SEND
+            }
+        }
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun VaultScreen() {
         val scope = rememberCoroutineScope()
         val credentials = remember(refreshCounter) { store.credentials() }
         val drafts = remember(refreshCounter, credentials?.origin, credentials?.userId) { store.draftsFor(credentials?.origin, credentials?.userId) }
+        val snackbarHostState = remember { SnackbarHostState() }
+        LaunchedEffect(statusMessage, statusTone) {
+            val message = statusMessage
+            if (message.isNotBlank()) {
+                snackbarHostState.showSnackbar(message)
+                if (statusMessage == message) statusMessage = ""
+            }
+        }
         LaunchedEffect(credentials?.deviceId, drafts.any { it.state == DraftState.QUEUED || it.state == DraftState.UPLOADING || it.state == DraftState.RETRYING }) {
             while (credentials != null && drafts.any { it.state == DraftState.QUEUED || it.state == DraftState.UPLOADING || it.state == DraftState.RETRYING }) {
                 delay(1000); refreshCounter++
             }
         }
         LaunchedEffect(credentials?.deviceId) {
-            if (credentials != null) store.draftsFor(credentials.origin, credentials.userId).filter { it.state == DraftState.QUEUED }.forEach { UploadWorker.enqueue(this@MainActivity, it.id) }
+            if (credentials != null) store.draftsFor(credentials.origin, credentials.userId)
+                .filter { it.state == DraftState.QUEUED }.forEach { UploadWorker.enqueue(this@MainActivity, it.id) }
         }
         val scanner = rememberLauncherForActivityResult(ScanContract()) { result -> result.contents?.let(::parsePairing) }
+        val openDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) preparePickedFile(uri)
+        }
         LaunchedEffect(payload?.pairingSessionId, pairingDeadline) {
             val sessionId = payload?.pairingSessionId ?: return@LaunchedEffect
             val deadline = pairingDeadline ?: return@LaunchedEffect
             val remaining = deadline - System.currentTimeMillis()
             if (remaining > 0) delay(remaining)
             if (payload?.pairingSessionId == sessionId && System.currentTimeMillis() >= deadline) {
-                payload = null; pairingDeadline = null; secret = ""; pasteText = ""; statusMessage = "Pairing code expired. Create a fresh QR code."
+                payload = null; pairingDeadline = null; secret = ""; pasteText = ""
+                showStatus("Pairing code expired. Create a fresh QR code.", NoticeTone.ERROR)
             }
         }
-        MaterialTheme {
-            Surface(Modifier.fillMaxSize()) {
-                val screenModifier = Modifier.fillMaxSize().padding(20.dp).then(
-                    if (credentials == null) Modifier.verticalScroll(rememberScrollState()) else Modifier
-                )
-                Column(screenModifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Vault", style = MaterialTheme.typography.headlineMedium)
-                    if (credentials == null) {
+        val snackbarHost: @Composable () -> Unit = {
+            SnackbarHost(snackbarHostState) { data ->
+                val error = statusTone == NoticeTone.ERROR
+                val background = when {
+                    error -> MaterialTheme.colorScheme.errorContainer
+                    statusTone == NoticeTone.SUCCESS -> MaterialTheme.colorScheme.primaryContainer
+                    else -> MaterialTheme.colorScheme.inverseSurface
+                }
+                val foreground = when {
+                    error -> MaterialTheme.colorScheme.onErrorContainer
+                    statusTone == NoticeTone.SUCCESS -> MaterialTheme.colorScheme.onPrimaryContainer
+                    else -> MaterialTheme.colorScheme.inverseOnSurface
+                }
+                Snackbar(snackbarData = data, containerColor = background, contentColor = foreground)
+            }
+        }
+
+        VaultTheme {
+            if (credentials == null) {
+                Scaffold(
+                    topBar = { TopAppBar(title = { Text("Pair Vault") }) },
+                    snackbarHost = snackbarHost,
+                ) { innerPadding ->
+                    Column(
+                        Modifier.fillMaxSize().padding(innerPadding).consumeWindowInsets(innerPadding)
+                            .imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Text("Send and receive between this phone and your PC.", style = MaterialTheme.typography.bodyLarge)
                         PairingCodeEntry(
                             value = pasteText,
                             onValueChange = { pasteText = it },
@@ -213,59 +404,167 @@ class MainActivity : ComponentActivity() {
                             onScan = { scanner.launch(ScanOptions().setPrompt("Scan Vault pairing QR").setBeepEnabled(false).setOrientationLocked(false)) },
                         )
                         payload?.let { selected ->
-                            Text("Server: ${selected.serverOrigin}")
-                            if (selected.pairingSecret == null) OutlinedTextField(secret, { secret = it }, label = { Text("10-minute pairing secret") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
-                            OutlinedTextField(deviceName, { deviceName = it.take(100) }, label = { Text("Device name") }, modifier = Modifier.fillMaxWidth())
-                            Button(onClick = {
-                                if (pairingInProgress) return@Button
-                                pairingInProgress = true
-                                scope.launch {
-                                    try {
-                                        if ((pairingDeadline ?: 0L) <= System.currentTimeMillis()) { payload = null; secret = ""; pasteText = ""; statusMessage = "Pairing code expired. Create a fresh QR code."; return@launch }
-                                        statusMessage = "Pairing…"
-                                        try {
-                                            val paired = withContext(Dispatchers.IO) { vaultApi(this@MainActivity).pair(selected, secret.trim(), deviceName.trim()) }
-                                            store.saveCredentials(paired); payload = null; pairingDeadline = null; secret = ""; pasteText = ""; selectedTab = "Inbox"; statusMessage = "This phone is paired."; refreshCounter++
-                                        } catch (e: java.io.IOException) { statusMessage = "Pairing response was lost. Create a fresh pairing QR and pair again." }
-                                        catch (e: Exception) { statusMessage = e.message ?: "Pairing failed. Create a fresh pairing QR if this code was already used." }
-                                    } finally { pairingInProgress = false }
+                            Card(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text("Pair with ${selected.serverOrigin}", style = MaterialTheme.typography.titleMedium)
+                                    if (selected.pairingSecret == null) OutlinedTextField(
+                                        secret, { secret = it }, label = { Text("10-minute pairing secret") },
+                                        visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true,
+                                    )
+                                    OutlinedTextField(deviceName, { deviceName = it.take(100) }, label = { Text("Phone name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                                    Button(
+                                        onClick = {
+                                            if (pairingInProgress) return@Button
+                                            pairingInProgress = true
+                                            scope.launch {
+                                                try {
+                                                    if ((pairingDeadline ?: 0L) <= System.currentTimeMillis()) {
+                                                        payload = null; secret = ""; pasteText = ""
+                                                        showStatus("Pairing code expired. Create a fresh QR code.", NoticeTone.ERROR)
+                                                        return@launch
+                                                    }
+                                                    showStatus("Pairing…")
+                                                    try {
+                                                        val paired = withContext(Dispatchers.IO) { vaultApi(this@MainActivity).pair(selected, secret.trim(), deviceName.trim()) }
+                                                        store.saveCredentials(paired); payload = null; pairingDeadline = null; secret = ""; pasteText = ""
+                                                        selectedDestination = VaultDestination.SEND
+                                                        showStatus("This phone is paired.", NoticeTone.SUCCESS)
+                                                        refreshCounter++
+                                                    } catch (e: java.io.IOException) {
+                                                        showStatus("Pairing response was lost. Create a fresh pairing QR and pair again.", NoticeTone.ERROR)
+                                                    } catch (e: Exception) {
+                                                        showStatus(e.message ?: "Pairing failed. Create a fresh pairing QR if this code was already used.", NoticeTone.ERROR)
+                                                    }
+                                                } finally { pairingInProgress = false }
+                                            }
+                                        },
+                                        enabled = secret.isNotBlank() && deviceName.isNotBlank() && !pairingInProgress,
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                                    ) { Text(if (pairingInProgress) "Pairing…" else "Pair phone") }
                                 }
-                            }, enabled = secret.isNotBlank() && deviceName.isNotBlank() && !pairingInProgress) { Text(if (pairingInProgress) "Pairing…" else "Pair phone") }
-                        }
-                    } else {
-                        Text("Paired with ${credentials.origin}")
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(selected = selectedTab == "Inbox", onClick = { selectedTab = "Inbox" }, label = { Text("Inbox") }, modifier = Modifier.heightIn(min = 48.dp))
-                            FilterChip(selected = selectedTab == "Recent sends", onClick = { selectedTab = "Recent sends" }, label = { Text("Recent sends") }, modifier = Modifier.heightIn(min = 48.dp))
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (selectedTab == "Recent sends") OutlinedButton(onClick = { refreshCounter++ }) { Text("Refresh sends") }
-                            Button(onClick = { signOutConfirmation = true }, enabled = !signOutInProgress) { Text(if (signOutInProgress) "Signing out…" else "Sign out everywhere") }
-                        }
-                        if (selectedTab == "Inbox") {
-                            InboxTab(vaultApi(this@MainActivity), store, "${credentials.origin}|${credentials.userId}|${credentials.deviceId}", foregroundToken, Modifier.weight(1f))
-                        } else {
-                            Text("Recent sends", style = MaterialTheme.typography.titleLarge)
-                            if (drafts.isEmpty()) Text("Shared items will appear here.")
-                            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(drafts, key = { it.id }) { draft ->
-                                if (draft.state == DraftState.PREPARED) {
-                                    PreparedSendCard(draft,
-                                        onSend = { retention -> draftQueue().send(draft.id, retention); statusMessage = "Added to your upload queue."; refreshCounter++ },
-                                        onCancel = { draftQueue().cancel(draft.id); statusMessage = "Prepared send removed."; refreshCounter++ })
-                                } else Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-                                    Text(draft.displayName, style = MaterialTheme.typography.titleMedium)
-                                    val percent = if (draft.sizeBytes > 0) ((draft.bytesSent.coerceAtMost(draft.sizeBytes) * 100) / draft.sizeBytes).toInt() else 0
-                                    Text(if (draft.state == DraftState.UPLOADING && draft.sizeBytes > 0) "uploading · $percent%" else draft.state.name.lowercase().replace('_', ' '))
-                                    draft.safeError?.let { Text(it) }
-                                    if (draft.state == DraftState.FAILED) TextButton(onClick = { store.saveDraft(draft.copy(state = DraftState.QUEUED, safeError = null)); UploadWorker.enqueue(this@MainActivity, draft.id); refreshCounter++ }) { Text("Retry") }
-                                    if (draft.state == DraftState.FAILED) TextButton(onClick = { UploadWorker.cancel(this@MainActivity, draft.id); store.deleteDraft(draft.id); refreshCounter++ }) { Text("Remove failed send") }
-                                } }
                             }
                         }
+                    }
+                }
+            } else {
+                val isSubpage = accountScreen || composeKind != null || reviewDraftId != null
+                val title = when {
+                    accountScreen -> "Account"
+                    reviewDraftId != null -> "Review send"
+                    composeKind != null -> composeKind?.let { kind -> when (kind) { ComposeKind.TEXT -> "Send text"; ComposeKind.LINK -> "Send link"; ComposeKind.FILE -> "Send file" } } ?: "Send"
+                    selectedDestination == VaultDestination.SEND -> "Send"
+                    selectedDestination == VaultDestination.INBOX -> "Inbox"
+                    else -> "Activity"
+                }
+                Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = { Text(title) },
+                            navigationIcon = {
+                                if (isSubpage) IconButton(onClick = ::backFromFullScreen) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                }
+                            },
+                            actions = {
+                                if (!accountScreen) IconButton(onClick = { accountScreen = true }) {
+                                    Icon(Icons.Filled.AccountCircle, contentDescription = "Account and connection")
+                                }
+                            },
+                        )
+                    },
+                    bottomBar = {
+                        if (!isSubpage) NavigationBar {
+                            NavigationBarItem(
+                                selected = selectedDestination == VaultDestination.SEND,
+                                onClick = { selectedDestination = VaultDestination.SEND },
+                                icon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) }, label = { Text("Send") },
+                            )
+                            NavigationBarItem(
+                                selected = selectedDestination == VaultDestination.INBOX,
+                                onClick = { selectedDestination = VaultDestination.INBOX },
+                                icon = { Icon(Icons.Filled.Inbox, contentDescription = null) }, label = { Text("Inbox") },
+                            )
+                            NavigationBarItem(
+                                selected = selectedDestination == VaultDestination.ACTIVITY,
+                                onClick = { selectedDestination = VaultDestination.ACTIVITY },
+                                icon = { Icon(Icons.Filled.History, contentDescription = null) }, label = { Text("Activity") },
+                            )
+                        }
+                    },
+                    snackbarHost = snackbarHost,
+                ) { innerPadding ->
+                    Box(Modifier.fillMaxSize().padding(innerPadding).consumeWindowInsets(innerPadding)) {
+                        when {
+                            accountScreen -> AccountScreen(credentials, deviceName, onSignOut = { signOutConfirmation = true }, modifier = Modifier.fillMaxSize())
+                            reviewDraftId != null -> {
+                                val draft = remember(refreshCounter, reviewDraftId) { reviewDraftId?.let(store::draft) }
+                                if (draft == null) MissingDraftScreen(Modifier.fillMaxSize())
+                                else ReviewSendScreen(
+                                    draft = draft,
+                                    onSend = { retention ->
+                                        runCatching { draftQueue().send(draft.id, retention) }
+                                            .onSuccess { reviewDraftId = null; selectedDestination = VaultDestination.ACTIVITY; showStatus("Added to Activity. Upload will retry if the network drops.", NoticeTone.SUCCESS); refreshCounter++ }
+                                            .onFailure { showStatus(it.message ?: "Could not queue this send.", NoticeTone.ERROR) }
+                                    },
+                                    onEdit = { retention ->
+                                        store.saveDraft(draft.copy(retentionDays = retention))
+                                        openComposer(draft.contentKind.toComposeKind(draft.text), draft.id)
+                                        refreshCounter++
+                                    },
+                                    onDiscard = {
+                                        draftQueue().cancel(draft.id)
+                                        reviewDraftId = null; selectedDestination = VaultDestination.SEND
+                                        showStatus("Prepared send discarded.")
+                                        refreshCounter++
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                            composeKind != null -> SendComposerScreen(
+                                kind = composeKind!!,
+                                text = composeText,
+                                displayName = composeName,
+                                selectedFile = composeFileDraft,
+                                preparingFile = preparingFile,
+                                notice = null,
+                                onTextChange = { composeText = it },
+                                onNameChange = { composeName = it },
+                                onChooseFile = { openDocument.launch(arrayOf("*/*")) },
+                                onReview = ::reviewComposer,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            selectedDestination == VaultDestination.SEND -> SendHomeScreen(
+                                onText = { openComposer(ComposeKind.TEXT) },
+                                onLink = { openComposer(ComposeKind.LINK) },
+                                onFile = { openComposer(ComposeKind.FILE) },
+                                serverOrigin = credentials.origin,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            selectedDestination == VaultDestination.INBOX -> InboxTab(
+                                vaultApi(this@MainActivity), store,
+                                "${credentials.origin}|${credentials.userId}|${credentials.deviceId}",
+                                foregroundToken, Modifier.fillMaxSize(),
+                            )
+                            else -> ActivityScreen(
+                                drafts = drafts,
+                                onReview = { reviewDraftId = it },
+                                onRetry = { draft ->
+                                    store.saveDraft(draft.copy(state = DraftState.QUEUED, safeError = null, bytesSent = 0))
+                                    UploadWorker.enqueue(this@MainActivity, draft.id)
+                                    showStatus("Retry queued.", NoticeTone.SUCCESS)
+                                    refreshCounter++
+                                },
+                                onRemove = { draft ->
+                                    UploadWorker.cancel(this@MainActivity, draft.id)
+                                    store.deleteDraft(draft.id)
+                                    showStatus("Failed send removed.")
+                                    refreshCounter++
+                                },
+                                onStartSend = { selectedDestination = VaultDestination.SEND },
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
                     }
-                    if (statusMessage.isNotBlank()) Text(statusMessage, color = MaterialTheme.colorScheme.primary)
                 }
             }
             if (signOutConfirmation) {
@@ -276,14 +575,42 @@ class MainActivity : ComponentActivity() {
                         signOutConfirmation = false
                         signOutInProgress = true
                         scope.launch {
-                            statusMessage = "Signing out everywhere…"
-                            try { withContext(Dispatchers.IO) { vaultApi(this@MainActivity).revokeAll() }; statusMessage = "All sessions were signed out." }
-                            catch (e: Exception) { statusMessage = e.message ?: "Could not revoke sessions." }
+                            showStatus("Signing out everywhere…")
+                            try {
+                                withContext(Dispatchers.IO) { vaultApi(this@MainActivity).revokeAll() }
+                                reviewDraftId = null; accountScreen = false; selectedDestination = VaultDestination.SEND
+                                showStatus("All sessions were signed out.", NoticeTone.SUCCESS)
+                            } catch (e: Exception) { showStatus(e.message ?: "Could not revoke sessions.", NoticeTone.ERROR) }
                             finally { signOutInProgress = false; refreshCounter++ }
                         }
                     },
                 )
             }
+        }
+    }
+
+    @Composable
+    private fun AccountScreen(credentials: Credentials, deviceName: String, onSignOut: () -> Unit, modifier: Modifier = Modifier) {
+        Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("Account and connection", style = MaterialTheme.typography.bodyLarge)
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Server", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(credentials.origin, style = MaterialTheme.typography.bodyLarge)
+                    Text("Phone: $deviceName", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            Text("Your phone is paired, but it does not keep a live connection while the app is closed. The Inbox refreshes when you open Vault or return to it. Uploads retry when Android allows background work.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Sign out everywhere") }
+        }
+    }
+
+    @Composable
+    private fun MissingDraftScreen(modifier: Modifier = Modifier) {
+        Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("This draft is no longer available.", style = MaterialTheme.typography.titleLarge)
+            Text("Return to Activity and choose another send.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = { reviewDraftId = null; selectedDestination = VaultDestination.ACTIVITY }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open Activity") }
         }
     }
 
@@ -293,6 +620,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val STATE_SELECTED_TAB = "vault.selectedTab"
+        private const val STATE_REVIEW_DRAFT_ID = "vault.reviewDraftId"
+        private const val STATE_ACCOUNT_SCREEN = "vault.accountScreen"
         private const val STATE_DEVICE_NAME = "vault.deviceName"
         private const val STATE_STATUS = "vault.status"
         private const val STATE_PAIRING_DEADLINE = "vault.pairingDeadline"

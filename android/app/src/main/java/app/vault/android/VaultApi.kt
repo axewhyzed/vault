@@ -279,7 +279,13 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
     private fun uploadText(draft: Draft, token: String): Draft {
         val text = draft.text!!
         val candidate = text.trim()
-        val validUrl = runCatching { java.net.URI(candidate).let { it.isAbsolute && (it.scheme == "http" || it.scheme == "https") && !it.host.isNullOrBlank() && it.rawUserInfo == null && candidate.none(Char::isWhitespace) && candidate.none { ch -> Character.isISOControl(ch) } } }.getOrDefault(false)
+        val validUrl = when (draft.contentKind) {
+            DraftContentKind.TEXT, DraftContentKind.FILE -> false
+            DraftContentKind.URL -> isSafeExternalHttpUrl(candidate).also { valid ->
+                if (!valid) throw ApiFailure(400, "invalid_url", "Enter a complete HTTP or HTTPS link without spaces or credentials.")
+            }
+            DraftContentKind.AUTO -> isSafeExternalHttpUrl(candidate)
+        }
         val url = if (validUrl) "/api/v1/items/url" else "/api/v1/items/text"
         val body = if (validUrl) JSONObject().put("url", candidate).put("displayName", draft.displayName).put("retentionDays", draft.retentionDays).toString() else JSONObject().put("text", text).put("displayName", draft.displayName).put("retentionDays", draft.retentionDays).toString()
         execute(draft.serverOrigin + url, "POST", body, mapOf("Authorization" to "Bearer $token", "Idempotency-Key" to draft.idempotencyKey))

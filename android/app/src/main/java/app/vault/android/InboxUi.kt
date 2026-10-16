@@ -71,6 +71,7 @@ internal fun InboxTab(
     var detailError by remember(ownerKey) { mutableStateOf<String?>(null) }
     var detailId by remember(ownerKey) { mutableStateOf<String?>(null) }
     var operationMessage by remember(ownerKey) { mutableStateOf<String?>(null) }
+    var operationMessageIsError by remember(ownerKey) { mutableStateOf(false) }
     var operationBusy by remember(ownerKey) { mutableStateOf(false) }
     var downloadFile by remember(ownerKey) { mutableStateOf<File?>(null) }
     var downloadName by remember(ownerKey) { mutableStateOf("vault-attachment") }
@@ -83,6 +84,11 @@ internal fun InboxTab(
     fun ownerStillCurrent(): Boolean {
         val current = store.credentials() ?: return false
         return "${current.origin}|${current.userId}|${current.deviceId}" == ownerKey
+    }
+
+    fun showOperationMessage(message: String?, isError: Boolean = false) {
+        operationMessage = message
+        operationMessageIsError = isError
     }
 
     suspend fun fetchPage(reset: Boolean) {
@@ -123,7 +129,7 @@ internal fun InboxTab(
         detailLoading = true
         detailError = null
         selected = null
-        operationMessage = null
+        showOperationMessage(null)
         val epoch = ++detailEpoch
         try {
             val value = withContext(Dispatchers.IO) { api.getItem(id) }
@@ -138,7 +144,7 @@ internal fun InboxTab(
     LaunchedEffect(ownerKey) {
         requestEpoch++
         rows = emptyList(); nextCursor = null; hasLoaded = false; selected = null
-        detailId = null; pageError = null; detailError = null; operationMessage = null
+        detailId = null; pageError = null; detailError = null; showOperationMessage(null)
         fetchPage(reset = true)
     }
     LaunchedEffect(ownerKey, foregroundToken) {
@@ -151,7 +157,7 @@ internal fun InboxTab(
     BackHandler(selected != null || detailLoading || detailId != null) {
         detailEpoch++; detailLoading = false
         downloadFile?.delete(); downloadFile = null
-        selected = null; detailId = null; detailError = null; operationMessage = null
+        selected = null; detailId = null; detailError = null; showOperationMessage(null)
     }
 
     val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -159,7 +165,7 @@ internal fun InboxTab(
         downloadFile = null
         if (uri == null || file == null) {
             file?.delete()
-            operationMessage = if (uri == null) "Download cancelled." else "Downloaded file is unavailable."
+            showOperationMessage(if (uri == null) "Download cancelled." else "Downloaded file is unavailable.", isError = file == null && uri != null)
         } else {
             operationBusy = true
             scope.launch {
@@ -170,10 +176,10 @@ internal fun InboxTab(
                         context.contentResolver.openOutputStream(uri, "w")?.use { output -> file.inputStream().use { input -> input.copyTo(output) } }
                             ?: throw IllegalStateException("Could not write to the selected location.")
                     }
-                    operationMessage = "Attachment saved."
+                    showOperationMessage("Attachment saved.")
                 } catch (e: Exception) {
                     runCatching { context.contentResolver.delete(uri, null, null) }
-                    operationMessage = e.safeInboxMessage()
+                    showOperationMessage(e.safeInboxMessage(), isError = true)
                 }
                 finally { file.delete(); operationBusy = false }
             }
@@ -183,33 +189,33 @@ internal fun InboxTab(
     val detail = selected
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (detail != null || detailLoading || detailId != null) {
-            TextButton(onClick = { detailEpoch++; detailLoading = false; downloadFile?.delete(); downloadFile = null; selected = null; detailId = null; detailError = null; operationMessage = null }, modifier = Modifier.heightIn(min = 48.dp)) { Text("‹  Inbox") }
+            TextButton(onClick = { detailEpoch++; detailLoading = false; downloadFile?.delete(); downloadFile = null; selected = null; detailId = null; detailError = null; showOperationMessage(null) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("‹  Inbox") }
             if (detailLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
             detailError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (detail == null && !detailLoading) detailError?.let { TextButton(onClick = { detailId?.let { id -> scope.launch { openDetail(id) } } }) { Text("Retry") } }
             detail?.let { item ->
-                DetailContent(item, operationBusy, downloadProgress, operationMessage,
+                DetailContent(item, operationBusy, downloadProgress, operationMessage, operationMessageIsError,
                     onCopy = { value ->
-                        if (isInboxItemExpired(item.expiresAt)) operationMessage = "This item has expired."
+                        if (isInboxItemExpired(item.expiresAt)) showOperationMessage("This item has expired.", isError = true)
                         else {
                             val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Vault item", value))
-                            operationMessage = "Copied to clipboard."
+                            showOperationMessage("Copied to clipboard.")
                         }
                     },
                     onOpen = {
                         val url = item.text.orEmpty()
-                        if (isInboxItemExpired(item.expiresAt)) operationMessage = "This item has expired."
-                        else if (!isSafeExternalHttpUrl(url)) operationMessage = "This link cannot be opened safely."
+                        if (isInboxItemExpired(item.expiresAt)) showOperationMessage("This item has expired.", isError = true)
+                        else if (!isSafeExternalHttpUrl(url)) showOperationMessage("This link cannot be opened safely.", isError = true)
                         else try {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                            operationMessage = "Opened link in your browser."
-                        } catch (_: Exception) { operationMessage = "No browser is available to open this link." }
+                            showOperationMessage("Opened link in your browser.")
+                        } catch (_: Exception) { showOperationMessage("No browser is available to open this link.", isError = true) }
                     },
                     onDownload = {
-                        if (isInboxItemExpired(item.expiresAt)) operationMessage = "This item has expired."
+                        if (isInboxItemExpired(item.expiresAt)) showOperationMessage("This item has expired.", isError = true)
                         else {
-                            operationBusy = true; operationMessage = "Preparing verified download…"; downloadProgress = 0
+                            operationBusy = true; showOperationMessage("Downloading and verifying…"); downloadProgress = 0
                             val expectedDetailEpoch = detailEpoch
                             scope.launch {
                                 var temp: File? = null
@@ -220,9 +226,9 @@ internal fun InboxTab(
                                     if (!ownerStillCurrent() || isInboxItemExpired(item.expiresAt) || selected?.id != item.id || expectedDetailEpoch != detailEpoch) throw IllegalStateException("This item expired or the session changed before download.")
                                     downloadFile = temp; temp = null
                                     downloadName = safeDocumentSuggestion(item.displayName)
-                                    operationMessage = "Choose where to save the attachment."
+                                    showOperationMessage("Choose where to save the attachment.")
                                     createDocument.launch(downloadName)
-                                } catch (e: Exception) { temp?.delete(); operationMessage = e.safeInboxMessage() }
+                                } catch (e: Exception) { temp?.delete(); showOperationMessage(e.safeInboxMessage(), isError = true) }
                                 finally { operationBusy = false }
                             }
                         }
@@ -265,7 +271,7 @@ private fun InboxRow(item: InboxSummary, onClick: () -> Unit) {
 }
 
 @Composable
-private fun DetailContent(item: InboxDetail, busy: Boolean, progressBytes: Long, message: String?, onCopy: (String) -> Unit, onOpen: () -> Unit, onDownload: () -> Unit) {
+private fun DetailContent(item: InboxDetail, busy: Boolean, progressBytes: Long, message: String?, messageIsError: Boolean, onCopy: (String) -> Unit, onOpen: () -> Unit, onDownload: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(item.displayName, style = MaterialTheme.typography.headlineSmall)
         Text("${item.type} · ${item.contentType ?: "text/plain"} · ${formatBytes(item.sizeBytes)}")
@@ -290,7 +296,7 @@ private fun DetailContent(item: InboxDetail, busy: Boolean, progressBytes: Long,
             LinearProgressIndicator(Modifier.fillMaxWidth())
             if (progressBytes > 0) Text("Receiving and verifying: ${formatBytes(progressBytes)} of ${formatBytes(item.sizeBytes)}.")
         }
-        message?.let { Text(it, color = if (it.contains("could not", true) || it.contains("expired", true)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
+        message?.let { Text(it, color = if (messageIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
     }
 }
 
