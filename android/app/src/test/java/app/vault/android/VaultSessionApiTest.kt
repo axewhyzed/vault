@@ -208,4 +208,42 @@ class VaultSessionApiTest {
             assertEquals("Bearer va1_access", req.getHeader("Authorization"))
         } finally { server.shutdown() }
     }
+
+    @Test fun validateSessionReturnsTrueWhenAccountEndpointSucceeds() = kotlinx.coroutines.runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = EncryptedStore(
+                ApplicationProvider.getApplicationContext<Context>(),
+                VaultCrypto(KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()),
+            )
+            val serverOrigin = server.url("/").toString().trimEnd('/')
+            store.saveCredentials(Credentials(serverOrigin, "va1_access", "2099-01-01T00:00:00Z", "vr1_refresh", "2099-02-01T00:00:00Z", "owner", "device"))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("""{"userId":"usr-1","email":"owner@example.com","deviceId":"dev-1"}"""))
+
+            val result = VaultApi(store).validateSession()
+            assertTrue(result.isSuccess)
+            assertTrue(result.getOrThrow())
+            assertNotNull(store.credentials())
+        } finally { server.shutdown() }
+    }
+
+    @Test fun validateSessionReturnsFalseAndClearsCredentialsOn401() = kotlinx.coroutines.runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = EncryptedStore(
+                ApplicationProvider.getApplicationContext<Context>(),
+                VaultCrypto(KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()),
+            )
+            val serverOrigin = server.url("/").toString().trimEnd('/')
+            store.saveCredentials(Credentials(serverOrigin, "va1_access", "2099-01-01T00:00:00Z", "vr1_refresh", "2099-02-01T00:00:00Z", "owner", "device"))
+            // Server rejects token and rejects refresh with 401
+            server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":"invalid_token"}"""))
+            server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":"invalid_refresh_token"}"""))
+
+            val result = VaultApi(store).validateSession()
+            assertTrue(result.isSuccess)
+            assertFalse(result.getOrThrow())
+            assertNull(store.credentials())
+        } finally { server.shutdown() }
+    }
 }

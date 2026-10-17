@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
     private var pairingInProgress by mutableStateOf(false)
     private var signOutConfirmation by mutableStateOf(false)
     private var signOutInProgress by mutableStateOf(false)
+    private var userSignedOut by mutableStateOf(false)
     private var statusTone by mutableStateOf(NoticeTone.INFO)
     private var hubPingLatencyMs by mutableStateOf<Long?>(null)
     private var hubHasPinged by mutableStateOf(false)
@@ -341,9 +342,38 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun VaultScreen() {
         val scope = rememberCoroutineScope()
-        val credentials = remember(refreshCounter) { store.credentials() }
-        val drafts = remember(refreshCounter, credentials?.origin, credentials?.userId) { store.draftsFor(credentials?.origin, credentials?.userId) }
+        val authEpoch by EncryptedStore.authRevision.collectAsState()
+        val credentials = remember(authEpoch, refreshCounter, foregroundToken) { store.credentials() }
+        val drafts = remember(authEpoch, refreshCounter, foregroundToken, credentials?.origin, credentials?.userId) { store.draftsFor(credentials?.origin, credentials?.userId) }
         val snackbarHostState = remember { SnackbarHostState() }
+
+        var hadCredentials by remember { mutableStateOf(credentials != null) }
+        LaunchedEffect(credentials) {
+            if (credentials == null && hadCredentials) {
+                reviewDraftId = null
+                accountScreen = false
+                selectedDestination = VaultDestination.SEND
+                composeKind = null
+                composeFileDraft = null
+                editingDraftId = null
+                if (!userSignedOut) {
+                    showStatus("Session expired or revoked. Please sign in or pair again.", NoticeTone.ERROR)
+                }
+                userSignedOut = false
+            }
+            hadCredentials = (credentials != null)
+        }
+
+        LaunchedEffect(foregroundToken, credentials?.deviceId) {
+            if (credentials != null) {
+                val valid = withContext(Dispatchers.IO) {
+                    vaultApi(this@MainActivity).validateSession().getOrDefault(true)
+                }
+                if (!valid) {
+                    store.clearCredentials()
+                }
+            }
+        }
         LaunchedEffect(statusMessage, statusTone) {
             val message = statusMessage
             if (message.isNotBlank()) {
@@ -655,6 +685,7 @@ class MainActivity : ComponentActivity() {
                                     hubHasPinged = true
                                 },
                                 onSignOutCurrentDevice = {
+                                    userSignedOut = true
                                     scope.launch {
                                         showStatus("Signing out of this phone…")
                                         try {
@@ -686,6 +717,7 @@ class MainActivity : ComponentActivity() {
                     onConfirm = {
                         signOutConfirmation = false
                         signOutInProgress = true
+                        userSignedOut = true
                         scope.launch {
                             showStatus("Signing out everywhere…")
                             try {
