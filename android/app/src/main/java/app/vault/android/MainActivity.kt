@@ -541,7 +541,17 @@ class MainActivity : ComponentActivity() {
                                     draft = draft,
                                     onSend = { retention ->
                                         runCatching { draftQueue().send(draft.id, retention) }
-                                            .onSuccess { reviewDraftId = null; selectedDestination = VaultDestination.SEND; showStatus("Added to Vault. Upload will retry if the network drops.", NoticeTone.SUCCESS); refreshCounter++ }
+                                            .onSuccess {
+                                                reviewDraftId = null
+                                                selectedDestination = VaultDestination.SEND
+                                                val message = if (isNetworkConnected(this@MainActivity)) {
+                                                    "Added to Vault. Upload will retry if the network drops."
+                                                } else {
+                                                    "Queued for upload. Will send when connected."
+                                                }
+                                                showStatus(message, NoticeTone.SUCCESS)
+                                                refreshCounter++
+                                            }
                                             .onFailure { showStatus(it.message ?: "Could not queue this send.", NoticeTone.ERROR) }
                                     },
                                     onEdit = { retention ->
@@ -576,6 +586,26 @@ class MainActivity : ComponentActivity() {
                                 onLink = { openComposer(ComposeKind.LINK) },
                                 onFile = { openComposer(ComposeKind.FILE) },
                                 serverOrigin = credentials.origin,
+                                drafts = drafts,
+                                onReview = { reviewDraftId = it },
+                                onRetry = { draft ->
+                                    runCatching { draftQueue().send(draft.id, draft.retentionDays) }
+                                        .onSuccess {
+                                            val message = if (isNetworkConnected(this@MainActivity)) {
+                                                "Added to Vault. Upload will retry if the network drops."
+                                            } else {
+                                                "Queued for upload. Will send when connected."
+                                            }
+                                            showStatus(message, NoticeTone.SUCCESS)
+                                            refreshCounter++
+                                        }
+                                        .onFailure { showStatus(it.message ?: "Could not queue this send.", NoticeTone.ERROR) }
+                                },
+                                onRemove = { draft ->
+                                    draftQueue().cancel(draft.id)
+                                    showStatus("Send removed.")
+                                    refreshCounter++
+                                },
                                 modifier = Modifier.fillMaxSize(),
                             )
                             selectedDestination == VaultDestination.INBOX -> InboxTab(

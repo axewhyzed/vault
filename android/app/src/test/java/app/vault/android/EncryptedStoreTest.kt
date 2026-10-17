@@ -99,4 +99,79 @@ class EncryptedStoreTest {
         store.clearInboxCache()
         assertNull(store.cachedInbox())
     }
+
+    @Test fun defaultDownloadUriIsEncryptedAndPersisted() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val testKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+        val store = EncryptedStore(context, VaultCrypto(testKey))
+
+        assertNull(store.defaultDownloadUri())
+        assertNull(store.defaultDownloadFolderUri)
+
+        val uri = "content://com.android.externalstorage.documents/tree/primary%3ADownload%2FVault"
+        store.saveDefaultDownloadUri(uri)
+
+        // Verify retrieval
+        assertEquals(uri, store.defaultDownloadUri())
+        assertEquals(uri, store.defaultDownloadFolderUri)
+
+        // Verify disk file is encrypted and does not leak plaintext URI
+        val settingsFile = java.io.File(context.filesDir, "vault-private/settings.bin")
+        assertTrue(settingsFile.exists())
+        val rawBytes = settingsFile.readBytes().toString(Charsets.ISO_8859_1)
+        assertFalse(rawBytes.contains("primary%3ADownload"))
+        assertFalse(rawBytes.contains("content://"))
+
+        // Update to a new URI
+        val updatedUri = "content://com.android.externalstorage.documents/tree/primary%3ADocuments"
+        store.saveDefaultDownloadUri(updatedUri)
+        assertEquals(updatedUri, store.defaultDownloadUri())
+
+        // Clear URI by saving null
+        store.saveDefaultDownloadUri(null)
+        assertNull(store.defaultDownloadUri())
+        assertNull(store.defaultDownloadFolderUri)
+    }
+
+    @Test fun cacheOperationsClearSpoolsAndCachedInbox() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val testKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+        val store = EncryptedStore(context, VaultCrypto(testKey))
+
+        // Create temporary spools
+        val data1 = "first spooled temporary chunk".toByteArray()
+        val data2 = "second spooled temporary chunk".toByteArray()
+        store.createSpool("spool-1", ByteArrayInputStream(data1))
+        store.createSpool("spool-2", ByteArrayInputStream(data2))
+
+        val currentSpoolBytes = store.spoolSize()
+        assertTrue(currentSpoolBytes >= (data1.size + data2.size))
+        assertTrue(store.hasSpool("spool-1"))
+        assertTrue(store.hasSpool("spool-2"))
+
+        // Save inbox cache
+        val summary = InboxSummary(
+            id = "item-temp",
+            type = "text",
+            state = "available",
+            displayName = "temp-note",
+            sizeBytes = 100,
+            createdAt = "2026-10-17T12:00:00Z",
+            availableAt = "2026-10-17T12:00:01Z",
+            expiresAt = "2026-10-24T12:00:00Z",
+            version = 1,
+            sourceDevice = InboxSourceDevice("dev-temp", "Laptop", "web"),
+        )
+        store.saveInboxCache(CachedInbox("owner-key", 1729166400000L, listOf(summary), null, null))
+        assertNotNull(store.cachedInbox())
+
+        // Clear local cache
+        store.clearLocalCache()
+
+        // Verify all spools and inbox cache are removed
+        assertEquals(0L, store.spoolSize())
+        assertFalse(store.hasSpool("spool-1"))
+        assertFalse(store.hasSpool("spool-2"))
+        assertNull(store.cachedInbox())
+    }
 }

@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -138,6 +139,40 @@ class VaultSessionApiTest {
             val request = server.takeRequest()
             assertEquals("GET", request.method)
             assertEquals("/health/live", request.path)
+        } finally { server.shutdown() }
+    }
+
+    @Test fun deviceLoginFailureOnInvalidCredentialsDoesNotSaveTokens() {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = EncryptedStore(
+                ApplicationProvider.getApplicationContext<Context>(),
+                VaultCrypto(KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()),
+            )
+            val serverOrigin = server.url("/").toString().trimEnd('/')
+            server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":"invalid_credentials","message":"Incorrect email or password."}"""))
+
+            val result = VaultApi(store).deviceLogin(serverOrigin, "wrong@vault.local", "wrong-password", "Pixel 8")
+            assertTrue(result.isFailure)
+            assertNull(store.credentials())
+        } finally { server.shutdown() }
+    }
+
+    @Test fun revokeCurrentDeviceFailureRetainsCredentialsForRetry() {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = EncryptedStore(
+                ApplicationProvider.getApplicationContext<Context>(),
+                VaultCrypto(KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()),
+            )
+            val serverOrigin = server.url("/").toString().trimEnd('/')
+            val creds = Credentials(serverOrigin, "va1_access", "2099-01-01T00:00:00Z", "vr1_refresh", "2099-02-01T00:00:00Z", "owner", "device")
+            store.saveCredentials(creds)
+            server.enqueue(MockResponse().setResponseCode(500).setBody("Server error"))
+
+            val result = VaultApi(store).revokeCurrentDevice()
+            assertTrue(result.isFailure)
+            assertEquals(creds, store.credentials())
         } finally { server.shutdown() }
     }
 }

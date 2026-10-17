@@ -2,6 +2,7 @@ package app.vault.android
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,14 +24,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.core.content.FileProvider
+import androidx.documentfile.provider.DocumentFile
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,6 +78,21 @@ internal fun safeDocumentSuggestion(name: String, fallback: String = "vault-atta
         .trim().take(120)
     return sanitized.ifBlank { fallback }
 }
+
+internal fun saveToTreeUri(context: android.content.Context, treeUri: Uri, fileName: String, mimeType: String, sourceFile: File): Boolean {
+    return try {
+        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return false
+        if (!root.canWrite()) return false
+        val doc = root.createFile(mimeType, fileName) ?: return false
+        context.contentResolver.openOutputStream(doc.uri, "w")?.use { out ->
+            sourceFile.inputStream().use { input -> input.copyTo(out) }
+        } ?: return false
+        true
+    } catch (_: Exception) {
+        false
+    }
+}
+
 
 @Composable
 internal fun InboxSkeletonCard(modifier: Modifier = Modifier) {
@@ -177,7 +201,7 @@ internal fun QuotaCard(quota: InboxQuota, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun TypeBadge(type: String, sizeBytes: Long) {
+internal fun TypeBadge(type: String, sizeBytes: Long = 0L) {
     val isDark = isSystemInDarkTheme()
     val (icon, label, tintColor) = when (type.lowercase()) {
         "file" -> Triple(
@@ -253,6 +277,27 @@ internal fun InboxTab(
     var lastForeground by remember(ownerKey) { mutableIntStateOf(Int.MIN_VALUE) }
     var refreshQueued by remember(ownerKey) { mutableStateOf(false) }
     var isBackgroundSyncing by remember(ownerKey) { mutableStateOf(false) }
+    var searchQuery by remember(ownerKey) { mutableStateOf("") }
+    var filterType by remember(ownerKey) { mutableStateOf("all") }
+
+    val filteredRows = remember(rows, searchQuery, filterType) {
+        val q = searchQuery.trim()
+        rows.filter { item ->
+            val typeMatches = when (filterType) {
+                "file" -> item.type.equals("file", ignoreCase = true)
+                "url" -> item.type.equals("url", ignoreCase = true) || item.type.equals("link", ignoreCase = true)
+                "text" -> item.type.equals("text", ignoreCase = true)
+                else -> true
+            }
+            if (!typeMatches) false
+            else if (q.isBlank()) true
+            else {
+                item.displayName.contains(q, ignoreCase = true) ||
+                item.type.contains(q, ignoreCase = true) ||
+                item.sourceDevice.name.contains(q, ignoreCase = true)
+            }
+        }
+    }
 
     fun ownerStillCurrent(): Boolean {
         val current = store.credentials() ?: return false
@@ -367,6 +412,7 @@ internal fun InboxTab(
 
     val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val file = downloadFile
+        val filename = downloadName
         downloadFile = null
         if (uri == null || file == null) {
             file?.delete()
@@ -380,6 +426,9 @@ internal fun InboxTab(
                     withContext(Dispatchers.IO) {
                         context.contentResolver.openOutputStream(uri, "w")?.use { output -> file.inputStream().use { input -> input.copyTo(output) } }
                             ?: throw IllegalStateException("Could not write to the selected location.")
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Downloaded $filename", Toast.LENGTH_SHORT).show()
                     }
                     showOperationMessage("Attachment saved.")
                 } catch (e: Exception) {
@@ -413,7 +462,7 @@ internal fun InboxTab(
                             showOperationMessage("Copied to clipboard.")
                         }
                     },
-                    onOpen = {
+                    onOpenUrl = {
                         val url = item.text.orEmpty()
                         if (isInboxItemExpired(item.expiresAt)) showOperationMessage("This item has expired.", isError = true)
                         else if (!isSafeExternalHttpUrl(url)) showOperationMessage("This link cannot be opened safely.", isError = true)
@@ -433,13 +482,89 @@ internal fun InboxTab(
                                     temp = withContext(Dispatchers.IO) {
                                         api.downloadToTemp(item) { bytes -> scope.launch(Dispatchers.Main.immediate) { downloadProgress = bytes } }
                                     }
-                                    if (!ownerStillCurrent() || isInboxItemExpired(item.expiresAt) || selected?.id != item.id || expectedDetailEpoch != detailEpoch) throw IllegalStateException("This item expired or the session changed before download.")
-                                    downloadFile = temp; temp = null
-                                    downloadName = safeDocumentSuggestion(item.displayName)
-                                    showOperationMessage("Choose where to save the attachment.")
-                                    createDocument.launch(downloadName)
-                                } catch (e: Exception) { temp?.delete(); showOperationMessage(e.safeInboxMessage(), isError = true) }
-                                finally { operationBusy = false }
+                                    if (!ownerStillCurrent() || isInboxItemExpired(item.expiresAt) || selected?.id != item.id || expectedDetailEpoch != detailEpoch) {
+                                        throw IllegalStateException("This item expired or the session changed before download.")
+                                    }
+                                    val folderUriStr = store.defaultDownloadUri()
+                                    val folderDoc = folderUriStr?.let { Uri.parse(it) }?.let { DocumentFile.fromTreeUri(context, it) }
+                                    if (folderDoc != null && folderDoc.canWrite()) {
+                                        val filename = safeDocumentSuggestion(item.displayName)
+                                        val mime = item.contentType?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
+                                        val folderName = folderDoc.name ?: "downloads folder"
+                                        withContext(Dispatchers.IO) {
+                                            val newDoc = folderDoc.createFile(mime, filename)
+                                                ?: throw IllegalStateException("Could not create file in default download folder.")
+                                            context.contentResolver.openOutputStream(newDoc.uri, "w")?.use { out ->
+                                                temp.inputStream().use { input -> input.copyTo(out) }
+                                            } ?: throw IllegalStateException("Could not write to default download folder.")
+                                        }
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Downloaded $filename to $folderName", Toast.LENGTH_SHORT).show()
+                                        }
+                                        showOperationMessage("Downloaded $filename to $folderName.")
+                                        temp.delete()
+                                    } else {
+                                        downloadFile = temp; temp = null
+                                        downloadName = safeDocumentSuggestion(item.displayName)
+                                        showOperationMessage("Choose where to save the attachment.")
+                                        createDocument.launch(downloadName)
+                                    }
+                                } catch (e: Exception) {
+                                    temp?.delete()
+                                    showOperationMessage(e.safeInboxMessage(), isError = true)
+                                } finally {
+                                    operationBusy = false
+                                }
+                            }
+                        }
+                    },
+                    onOpenFile = {
+                        if (isInboxItemExpired(item.expiresAt)) showOperationMessage("This item has expired.", isError = true)
+                        else {
+                            operationBusy = true; showOperationMessage("Opening file…"); downloadProgress = 0
+                            val expectedDetailEpoch = detailEpoch
+                            scope.launch {
+                                try {
+                                    val openedDir = File(context.cacheDir, "opened_files").apply { mkdirs() }
+                                    val targetFile = File(openedDir, "${item.id}_${safeDocumentSuggestion(item.displayName)}")
+                                    if (!targetFile.exists() || targetFile.length() != item.sizeBytes) {
+                                        showOperationMessage("Downloading and verifying…")
+                                        val temp = withContext(Dispatchers.IO) {
+                                            api.downloadToTemp(item) { bytes -> scope.launch(Dispatchers.Main.immediate) { downloadProgress = bytes } }
+                                        }
+                                        if (!ownerStillCurrent() || isInboxItemExpired(item.expiresAt) || selected?.id != item.id || expectedDetailEpoch != detailEpoch) {
+                                            temp.delete()
+                                            throw IllegalStateException("This item expired or the session changed.")
+                                        }
+                                        withContext(Dispatchers.IO) {
+                                            temp.copyTo(targetFile, overwrite = true)
+                                            temp.delete()
+                                        }
+                                    }
+                                    val contentUri = FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        targetFile
+                                    )
+                                    val mimeType = item.contentType?.takeIf { it.isNotBlank() && it != "application/octet-stream" }
+                                        ?: context.contentResolver.getType(contentUri)
+                                        ?: "application/octet-stream"
+                                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(contentUri, mimeType)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    try {
+                                        context.startActivity(Intent.createChooser(viewIntent, "Open with"))
+                                        showOperationMessage("Opening ${item.displayName}…")
+                                    } catch (_: Exception) {
+                                        showOperationMessage("No app found to open this file.", isError = true)
+                                    }
+                                } catch (e: Exception) {
+                                    showOperationMessage(e.safeInboxMessage(), isError = true)
+                                } finally {
+                                    operationBusy = false
+                                }
                             }
                         }
                     },
@@ -469,6 +594,62 @@ internal fun InboxTab(
                 Text("Inbox", style = MaterialTheme.typography.titleLarge)
                 TextButton(onClick = { scope.launch { fetchPage(reset = true) } }, enabled = !pageLoading, modifier = Modifier.heightIn(min = 48.dp)) { Text("Refresh") }
             }
+
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Search files, links, or devices…") },
+                leadingIcon = {
+                    Icon(Icons.Filled.Search, contentDescription = "Search inbox")
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = filterType == "all",
+                    onClick = { filterType = "all" },
+                    label = { Text("All") },
+                )
+                FilterChip(
+                    selected = filterType == "file",
+                    onClick = { filterType = "file" },
+                    label = { Text("Files") },
+                )
+                FilterChip(
+                    selected = filterType == "url",
+                    onClick = { filterType = "url" },
+                    label = { Text("Links") },
+                )
+                FilterChip(
+                    selected = filterType == "text",
+                    onClick = { filterType = "text" },
+                    label = { Text("Text") },
+                )
+            }
+
+            if (searchQuery.isNotBlank()) {
+                val count = filteredRows.size
+                Text(
+                    text = "$count result${if (count == 1) "" else "s"}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
+
             if (isBackgroundSyncing || (hasLoaded && pageLoading)) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(2.dp))
             }
@@ -517,17 +698,24 @@ internal fun InboxTab(
                     modifier = Modifier.weight(1f)
                 ) {
                     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        quota?.let { q ->
-                            item(key = "inbox-quota-card") {
-                                QuotaCard(q)
+                        if (searchQuery.isBlank()) {
+                            quota?.let { q ->
+                                item(key = "inbox-quota-card") {
+                                    QuotaCard(q)
+                                }
                             }
                         }
-                        if (rows.isEmpty() && pageError == null) {
+                        if (filteredRows.isEmpty() && pageError == null) {
                             item(key = "inbox-empty-message") {
-                                Text("Your inbox is empty.", modifier = Modifier.padding(vertical = 16.dp))
+                                Text(
+                                    if (searchQuery.isBlank() && filterType == "all") "Your inbox is empty."
+                                    else if (searchQuery.isNotBlank()) "No items match \"$searchQuery\"."
+                                    else "No ${filterType} items in your inbox.",
+                                    modifier = Modifier.padding(vertical = 16.dp)
+                                )
                             }
                         }
-                        items(rows, key = { it.id }) { item ->
+                        items(filteredRows, key = { it.id }) { item ->
                             InboxRow(
                                 item = item,
                                 modifier = Modifier.animateItem(),
@@ -553,7 +741,7 @@ internal fun InboxTab(
                                 }
                             )
                         }
-                        if (rows.isNotEmpty() && nextCursor != null) item(key = "inbox-load-more") {
+                        if (searchQuery.isBlank() && rows.isNotEmpty() && nextCursor != null) item(key = "inbox-load-more") {
                             OutlinedButton(onClick = { scope.launch { fetchPage(reset = false) } }, enabled = !pageLoading, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                                 Text(if (pageLoading) "Loading more…" else "Load more")
                             }
@@ -668,8 +856,9 @@ private fun DetailContent(
     message: String?,
     messageIsError: Boolean,
     onCopy: (String) -> Unit,
-    onOpen: () -> Unit,
+    onOpenUrl: () -> Unit,
     onDownload: () -> Unit,
+    onOpenFile: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var showConfirmDelete by remember { mutableStateOf(false) }
@@ -702,19 +891,69 @@ private fun DetailContent(
         Text("${item.type} · ${item.contentType ?: "text/plain"} · ${formatBytes(item.sizeBytes)}")
         Text("From ${item.sourceDevice.name} · expires ${formatInstant(item.expiresAt)}")
         when (item.type.lowercase()) {
-            "text", "url" -> {
+            "url" -> {
                 val exactValue = item.text.orEmpty()
                 Surface(Modifier.fillMaxWidth(), tonalElevation = 1.dp, shape = MaterialTheme.shapes.medium) {
                     SelectionContainer { Text(AnnotatedString(exactValue), Modifier.padding(12.dp)) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onCopy(exactValue) }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Copy") }
-                    if (item.type.equals("url", true)) OutlinedButton(onClick = onOpen, enabled = !busy && isSafeExternalHttpUrl(exactValue), modifier = Modifier.heightIn(min = 48.dp)) { Text("Open link") }
+                    Button(
+                        onClick = onOpenUrl,
+                        enabled = !busy && isSafeExternalHttpUrl(exactValue),
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Icon(Icons.Filled.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Open in Browser")
+                    }
+                    OutlinedButton(
+                        onClick = { onCopy(exactValue) },
+                        enabled = !busy,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Copy link")
+                    }
+                }
+            }
+            "text" -> {
+                val exactValue = item.text.orEmpty()
+                Surface(Modifier.fillMaxWidth(), tonalElevation = 1.dp, shape = MaterialTheme.shapes.medium) {
+                    SelectionContainer { Text(AnnotatedString(exactValue), Modifier.padding(12.dp)) }
+                }
+                Button(
+                    onClick = { onCopy(exactValue) },
+                    enabled = !busy,
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Copy text")
                 }
             }
             else -> {
                 Text("SHA-256: ${item.sha256 ?: "Unavailable"}")
-                Button(onClick = onDownload, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Download attachment") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onDownload,
+                        enabled = !busy,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Download")
+                    }
+                    OutlinedButton(
+                        onClick = onOpenFile,
+                        enabled = !busy,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Icon(Icons.Filled.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Open file")
+                    }
+                }
             }
         }
         Button(
@@ -732,7 +971,7 @@ private fun DetailContent(
         }
         if (busy) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (progressBytes > 0) Text("Receiving and verifying: ${formatBytes(progressBytes)} of ${formatBytes(item.sizeBytes)}.")
+            if (progressBytes > 0 && item.sizeBytes > 0) Text("Receiving and verifying: ${formatBytes(progressBytes)} of ${formatBytes(item.sizeBytes)}.")
         }
         message?.let { Text(it, color = if (messageIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
     }

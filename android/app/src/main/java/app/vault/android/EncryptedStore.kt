@@ -27,6 +27,31 @@ class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCr
     private val cacheDir = File(root, "cache").apply { mkdirs() }
     private val credentialFile = File(root, "credentials.bin")
     private val inboxCacheFile = File(cacheDir, "inbox_cache.bin")
+    private val settingsFile = File(root, "settings.bin")
+
+    @Synchronized fun saveDefaultDownloadUri(uri: String?) {
+        val currentJson = try {
+            if (settingsFile.exists()) JSONObject(crypto.decrypt(settingsFile.readBytes()).toString(Charsets.UTF_8)) else JSONObject()
+        } catch (_: Exception) { JSONObject() }
+        if (uri.isNullOrBlank()) {
+            currentJson.remove("defaultDownloadUri")
+        } else {
+            currentJson.put("defaultDownloadUri", uri)
+        }
+        writeEncrypted(settingsFile, currentJson.toString().toByteArray())
+    }
+
+    @Synchronized fun defaultDownloadUri(): String? {
+        if (!settingsFile.exists()) return null
+        return try {
+            val json = JSONObject(crypto.decrypt(settingsFile.readBytes()).toString(Charsets.UTF_8))
+            if (json.has("defaultDownloadUri") && !json.isNull("defaultDownloadUri")) {
+                json.getString("defaultDownloadUri").takeIf { it.isNotBlank() }
+            } else null
+        } catch (_: Exception) { null }
+    }
+
+    val defaultDownloadFolderUri: String? get() = defaultDownloadUri()
 
     @Synchronized fun saveCredentials(value: Credentials) = writeEncrypted(credentialFile, JSONObject().apply {
         put("origin", value.origin); put("accessToken", value.accessToken); put("accessExpiry", value.accessExpiry)
