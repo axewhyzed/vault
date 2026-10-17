@@ -23,6 +23,7 @@ export type ItemSummary = {
   expiresAt: string;
   version: number;
   sourceDevice: { id: string; name: string; platform: string };
+  textContent?: string | null;
 };
 
 export type ItemDetail = ItemSummary & {

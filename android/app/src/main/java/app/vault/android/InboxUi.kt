@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FormatQuote
@@ -292,7 +293,12 @@ internal fun InboxTab(
             if (!typeMatches) false
             else if (q.isBlank()) true
             else {
-                item.displayName.contains(q, ignoreCase = true) ||
+                val matchesContent = when (item.type) {
+                    "text", "url" -> item.textContent?.contains(q, ignoreCase = true) == true || item.displayName.contains(q, ignoreCase = true)
+                    "file" -> item.displayName.contains(q, ignoreCase = true)
+                    else -> item.displayName.contains(q, ignoreCase = true) || item.textContent?.contains(q, ignoreCase = true) == true
+                }
+                matchesContent ||
                 item.type.contains(q, ignoreCase = true) ||
                 item.sourceDevice.name.contains(q, ignoreCase = true)
             }
@@ -618,26 +624,28 @@ internal fun InboxTab(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterChip(
-                    selected = filterType == "all",
-                    onClick = { filterType = "all" },
-                    label = { Text("All") },
-                )
-                FilterChip(
-                    selected = filterType == "file",
-                    onClick = { filterType = "file" },
-                    label = { Text("Files") },
-                )
-                FilterChip(
-                    selected = filterType == "url",
-                    onClick = { filterType = "url" },
-                    label = { Text("Links") },
-                )
-                FilterChip(
-                    selected = filterType == "text",
-                    onClick = { filterType = "text" },
-                    label = { Text("Text") },
-                )
+                listOf(
+                    "all" to "All",
+                    "file" to "Files",
+                    "url" to "Links",
+                    "text" to "Text"
+                ).forEach { (typeKey, label) ->
+                    val isSelected = filterType == typeKey
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { filterType = typeKey },
+                        label = { Text(label) },
+                        leadingIcon = if (isSelected) {
+                            { Icon(Icons.Filled.Done, contentDescription = null, Modifier.size(16.dp)) }
+                        } else null,
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = isSelected,
+                            selectedBorderColor = MaterialTheme.colorScheme.primary,
+                            selectedBorderWidth = 1.5.dp
+                        )
+                    )
+                }
             }
 
             if (searchQuery.isNotBlank()) {

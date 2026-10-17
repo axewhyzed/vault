@@ -337,9 +337,11 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
         val id = canonicalUuid(json.getString("id")) ?: throw IllegalArgumentException()
         val type = json.getString("type")
         if (type !in setOf("text", "url", "file")) throw IllegalArgumentException()
+        val textContent = if (json.isNull("textContent")) null else json.getString("textContent")
         return InboxSummary(id, type, json.getString("state"), json.getString("displayName"), json.getLong("sizeBytes"),
             json.getString("createdAt"), json.getString("availableAt"), json.getString("expiresAt"), json.getInt("version"),
             json.getJSONObject("sourceDevice").let { InboxSourceDevice(it.getString("id"), it.getString("name"), it.getString("platform")) },
+            textContent,
             credentials.origin, credentials.userId)
     }
 

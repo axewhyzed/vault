@@ -335,6 +335,12 @@ internal fun ReviewSendScreen(
                                 }
                             },
                             label = { Text(label) },
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = selected,
+                                selectedBorderColor = MaterialTheme.colorScheme.primary,
+                                selectedBorderWidth = 1.5.dp
+                            ),
                             modifier = Modifier.weight(1f)
                         )
                     }

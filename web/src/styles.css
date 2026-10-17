@@ -17,7 +17,7 @@
   --ink: #0F172A;
   --ink-secondary: #334155;
   --muted: #64748B;
-  --muted-light: #94A3B8;
+  --muted-light: #64748B;
   --line: #E2E8F0;
   --line-light: #F1F5F9;
   --green: #059669;
@@ -36,7 +36,7 @@
   --chip-bg: rgba(241, 245, 249, 0.85);
   --type-text: #059669;
   --type-text-bg: rgba(5, 150, 105, 0.1);
-  --type-url: #D97706;
+  --type-url: #B45309;
   --type-url-bg: rgba(217, 119, 6, 0.1);
   --type-file: #2563EB;
   --type-file-bg: rgba(37, 99, 235, 0.1);
@@ -74,8 +74,8 @@
   --green-glow: rgba(16, 185, 129, 0.2);
   --primary-btn-text: #0B0F17;
   --input-bg: #1E293B;
-  --input-border: rgba(255, 255, 255, 0.12);
-  --input-border-hover: rgba(255, 255, 255, 0.25);
+  --input-border: rgba(255, 255, 255, 0.18);
+  --input-border-hover: rgba(255, 255, 255, 0.32);
   --input-focus-border: #10B981;
   --input-focus-ring: rgba(16, 185, 129, 0.2);
   --tab-bg: #0F172A;
@@ -120,8 +120,8 @@
     --green-glow: rgba(16, 185, 129, 0.2);
     --primary-btn-text: #0B0F17;
     --input-bg: #1E293B;
-    --input-border: rgba(255, 255, 255, 0.12);
-    --input-border-hover: rgba(255, 255, 255, 0.25);
+    --input-border: rgba(255, 255, 255, 0.18);
+    --input-border-hover: rgba(255, 255, 255, 0.32);
     --input-focus-border: #10B981;
     --input-focus-ring: rgba(16, 185, 129, 0.2);
     --tab-bg: #0F172A;
@@ -796,7 +796,7 @@ button:disabled { cursor: not-allowed; }
   font-weight: 600;
   color: var(--ink);
   background: var(--tab-bg);
-  border: 1px solid var(--line);
+  border: 1px solid var(--input-border);
   border-radius: 5px;
   transition: border-color 140ms ease;
 }
@@ -815,7 +815,7 @@ button:disabled { cursor: not-allowed; }
 .retention-select-wrap select {
   appearance: none;
   background: var(--tab-bg);
-  border: 1px solid var(--line);
+  border: 1px solid var(--input-border);
   border-radius: 5px;
   padding: 4px 22px 4px 8px;
   font-size: 11px;
@@ -850,7 +850,7 @@ button:disabled { cursor: not-allowed; }
   justify-content: center;
   gap: 6px;
   height: 34px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
   color: var(--muted);
@@ -867,7 +867,22 @@ button:disabled { cursor: not-allowed; }
 .compose-tab.is-active {
   background: var(--card);
   color: var(--ink);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  border-color: var(--green);
+  box-shadow: 0 0 0 1px var(--green-glow), 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.compose-tab.is-active svg {
+  color: var(--green);
+}
+
+[data-theme="dark"] .compose-tab.is-active {
+  background: var(--card-elevated);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .compose-tab.is-active {
+    background: var(--card-elevated);
+  }
 }
 
 .compose-tab-panel {

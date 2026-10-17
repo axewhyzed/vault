@@ -720,11 +720,16 @@ export default function App() {
       if (searchQuery.trim()) {
         const query = searchQuery.trim().toLowerCase();
         const nameMatch = (item.displayName ?? '').toLowerCase().includes(query);
-        const typeMatch = item.type.toLowerCase().includes(query);
         const deviceMatch = item.sourceDevice.name.toLowerCase().includes(query);
-        const cachedText = detailCache.current.get(item.id)?.toLowerCase() ?? '';
-        const textMatch = cachedText.includes(query);
-        return nameMatch || typeMatch || deviceMatch || textMatch;
+        const content = (item.textContent ?? detailCache.current.get(item.id) ?? '').toLowerCase();
+        const contentMatch = content.includes(query);
+
+        if (item.type === 'text' || item.type === 'url') {
+          return contentMatch || nameMatch || deviceMatch;
+        } else {
+          // File: search by file name, extension, and device
+          return nameMatch || deviceMatch;
+        }
       }
       return true;
     });
