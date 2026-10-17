@@ -2,6 +2,24 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import FileUpload from './FileUpload';
 import PairingPanel from './PairingPanel';
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  DownloadIcon,
+  FileIcon,
+  InboxSparkleIcon,
+  ItemTypeIcon,
+  LinkIcon,
+  MoonIcon,
+  RefreshIcon,
+  SendIcon,
+  ShieldLockIcon,
+  SunIcon,
+  TextIcon,
+  TrashIcon,
+} from './Icons';
 
 type Session = { userId: string; email: string; deviceId: string };
 type Csrf = { token: string; headerName: 'X-CSRF-TOKEN' };
@@ -20,7 +38,13 @@ type SendIntent = { key: string; kind: 'text' | 'url'; body: { text?: string; ur
 const API = '/api/v1';
 
 function VaultMark() {
-  return <svg aria-hidden="true" viewBox="0 0 32 32" className="vault-mark"><rect x="2" y="2" width="28" height="28" rx="9" fill="currentColor" /><path d="M9 11.25h2.55l4.45 10.1 4.45-10.1H23l-6.05 13.5h-1.9L9 11.25Z" fill="#f5f4ef" /><circle cx="23.1" cy="8.9" r="1.35" fill="#b9d48e" /></svg>;
+  return (
+    <svg aria-hidden="true" viewBox="0 0 32 32" className="vault-mark">
+      <rect x="2" y="2" width="28" height="28" rx="9" fill="currentColor" />
+      <path d="M9 11.25h2.55l4.45 10.1 4.45-10.1H23l-6.05 13.5h-1.9L9 11.25Z" fill="var(--paper, #f5f4ef)" />
+      <circle cx="23.1" cy="8.9" r="1.35" fill="#b9d48e" />
+    </svg>
+  );
 }
 
 async function readJson<T>(response: Response): Promise<T | null> {
@@ -56,6 +80,11 @@ function safePathId() {
 }
 
 function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('vault-theme');
+    if (saved === 'light' || saved === 'dark') return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
   const [view, setView] = useState<ViewState>('loading');
   const [session, setSession] = useState<Session | null>(null);
   const [identifier, setIdentifier] = useState('');
@@ -71,6 +100,7 @@ function App() {
   const generationRef = useRef(0);
   const detailRequestRef = useRef(0);
   const [items, setItems] = useState<ItemSummary[]>([]);
+  const [filterType, setFilterType] = useState<'all' | 'file' | 'url' | 'text'>('all');
   const [quota, setQuota] = useState<Quota | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [listBusy, setListBusy] = useState(false);
@@ -96,6 +126,13 @@ function App() {
 
   const publishError = (text: string) => { setMessageKind('error'); setMessage(text); };
   const invalidateRequests = () => { generationRef.current += 1; };
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('vault-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
 
   const fetchCsrf = useCallback(async () => {
     const response = await fetch(`${API}/auth/csrf`, { method: 'GET', credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
@@ -163,11 +200,30 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, session?.userId, selectedId]);
 
+  const backToList = useCallback(() => {
+    window.history.pushState({}, '', '/');
+    setSelectedId(null);
+    setDeleteConfirm(false);
+    setDetailError('');
+  }, []);
+
   useEffect(() => {
     const handlePopState = () => { setSelectedId(safePathId()); setDeleteConfirm(false); };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Escape key closes detail view
+  useEffect(() => {
+    if (!selectedId) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        backToList();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedId, backToList]);
 
   useEffect(() => { if (retrySeconds <= 0) return undefined; const timer = window.setTimeout(() => setRetrySeconds((seconds) => Math.max(0, seconds - 1)), 1000); return () => window.clearTimeout(timer); }, [retrySeconds]);
   useEffect(() => { if (view === 'signed-out') identifierRef.current?.focus(); if (view === 'signed-in') inboxHeadingRef.current?.focus(); }, [view]);
@@ -279,7 +335,6 @@ function App() {
   }
 
   function openItem(id: string) { window.history.pushState({}, '', `/items/${id}`); setSelectedId(id); setDeleteConfirm(false); setCopyMessage(''); setInboxNotice(''); }
-  function backToList() { window.history.pushState({}, '', '/'); setSelectedId(null); setDeleteConfirm(false); setDetailError(''); }
 
   async function copyText() {
     if (!detail || detail.type === 'file' || typeof detail.text !== 'string') return;
@@ -325,40 +380,412 @@ function App() {
 
   const bytePercent = quota ? Math.min(100, (quota.activeBytes / quota.maxActiveBytes) * 100) : 0;
 
+  const filteredItems = items.filter((item) => {
+    if (filterType === 'all') return true;
+    return item.type === filterType;
+  });
+
+  const fileCount = items.filter((i) => i.type === 'file').length;
+  const linkCount = items.filter((i) => i.type === 'url').length;
+  const textCount = items.filter((i) => i.type === 'text').length;
+
   return (
     <main className="app-shell">
-      <header className="topbar"><a className="brand" href="/" aria-label="Vault home"><VaultMark /><span>vault</span></a><div className="topbar-right"><span className="topbar-note">PERSONAL RELAY</span>{view === 'signed-in' && <button className="text-button" type="button" onClick={handleLogout} disabled={busy || revokeBusy}>{busy ? 'Signing out…' : 'Sign out'}</button>}</div></header>
-      {view === 'loading' && <section className="loading-panel" aria-live="polite" aria-busy="true"><span className="loading-ring" aria-hidden="true" /><p>Restoring your private space…</p></section>}
-      {view === 'signed-out' && <section className="auth-layout" aria-labelledby="welcome-title"><div className="intro-panel"><p className="eyebrow"><span className="eyebrow-line" /> YOUR DEVICES, IN SYNC</p><h1 id="welcome-title">A quieter way<br />to move things.</h1><p className="intro">A private bridge between your devices. Sign in to open your personal Vault.</p><div className={`service-status ${serviceOnline === false ? 'service-status--offline' : 'service-status--ready'}`} role="status"><span className="status-dot" /><span>{serviceOnline === null ? 'Checking Vault' : serviceOnline ? 'Vault is ready' : 'Vault is having trouble connecting'}</span></div></div>
-        <section className="auth-card" aria-labelledby="signin-title"><div className="auth-card-top"><span className="card-kicker">PRIVATE SPACE</span><span className="secure-label"><span aria-hidden="true">●</span> SECURE SIGN-IN</span></div><h2 id="signin-title">Welcome back</h2><p className="auth-description">Use your Vault account to continue.</p><form onSubmit={handleLogin} noValidate><div className="field-group"><label htmlFor="identifier">Email or username</label><input ref={identifierRef} id="identifier" name="identifier" type="text" autoComplete="username" inputMode="text" required value={identifier} onChange={(event) => setIdentifier(event.target.value)} disabled={busy} placeholder="Email address or username" /></div><div className="field-group"><label htmlFor="password">Password</label><input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} /></div><div className={`form-message ${message ? (messageKind === 'error' ? 'form-message--error' : 'form-message--notice') : ''}`} role={messageKind === 'error' ? 'alert' : 'status'} aria-live="polite">{message}</div><button className="primary-button" type="submit" disabled={busy || retrySeconds > 0 || !identifier.trim() || !password}><span>{busy ? 'Signing in…' : retrySeconds > 0 ? `Try again in ${retrySeconds}s` : 'Sign in'}</span><span aria-hidden="true">→</span></button></form><p className="card-footnote"><span aria-hidden="true">⌑</span> Your password is only sent over this secure connection.</p></section></section>}
-      {view === 'signed-in' && session && <section className="inbox-layout" aria-labelledby="inbox-title">
-        <div className="inbox-heading-row"><div><p className="eyebrow"><span className="eyebrow-line" /> YOUR PRIVATE SPACE</p><h1 ref={inboxHeadingRef} id="inbox-title" tabIndex={-1}>Your inbox</h1><p className="intro">Signed in as <strong>{session.email}</strong></p></div><div className="device-chip"><span className="device-indicator" /><span><b>This browser</b><small>Current session</small></span></div></div>
-        <div className="account-actions"><PairingPanel onUnauthorized={signOutOnUnauthorized} /><section className="send-card revoke-card" aria-labelledby="revoke-title"><div className="section-heading"><div><p className="card-kicker">ACCOUNT SECURITY</p><h2 id="revoke-title">Session control</h2></div><span className="send-lock" aria-hidden="true">⌑</span></div><p className="pairing-description">Lost a device or want to start fresh? Revoke every web session and Android refresh token.</p><p className={`pairing-message ${message && messageKind === 'error' ? 'pairing-message--error' : ''}`} role={messageKind === 'error' ? 'alert' : 'status'} aria-live="polite">{view === 'signed-in' && messageKind === 'error' ? message : ''}</p>{!revokeConfirm ? <button className="danger-button revoke-button" type="button" onClick={() => setRevokeConfirm(true)}>Sign out everywhere</button> : <div className="revoke-confirm" role="group" aria-label="Confirm sign out everywhere"><p>This will immediately revoke all web sessions and Android refresh tokens. You will need to sign in again on this browser too.</p><button className="danger-button" type="button" disabled={revokeBusy} onClick={() => void handleRevokeEverywhere()}>{revokeBusy ? 'Revoking sessions…' : 'Confirm sign out everywhere'}</button><button className="secondary-button" type="button" disabled={revokeBusy} onClick={() => setRevokeConfirm(false)}>Cancel</button></div>}</section></div>
-        <div className="quota-card" aria-label="Storage quota"><div className="quota-title"><strong>Vault storage</strong><span>{quota ? `${formatBytes(quota.activeBytes)} of ${formatBytes(quota.maxActiveBytes)}` : 'Loading usage…'}</span></div><div className="quota-track" role="progressbar" aria-label="Storage used" aria-valuemin={0} aria-valuemax={quota?.maxActiveBytes ?? 2_000_000_000} aria-valuenow={quota?.activeBytes ?? 0}><span style={{ width: `${bytePercent}%` }} /></div><small>{quota ? `${quota.activeItems.toLocaleString()} of ${quota.maxActiveItems.toLocaleString()} items` : ' '}</small></div>
-        <div className={`vault-workspace ${selectedId ? 'vault-workspace--detail' : ''}`}>
-          <div className="send-stack">
-          <section className="send-card" aria-labelledby="send-title"><div className="section-heading"><div><p className="card-kicker">SEND SOMETHING</p><h2 id="send-title">Add to Vault</h2></div><span className="send-lock" aria-hidden="true">↗</span></div>
-            <form onSubmit={(event) => void sendItem(event)}>
-              <div className="send-tabs" role="group" aria-label="Item type"><button type="button" className={kind === 'text' ? 'send-tab is-active' : 'send-tab'} aria-pressed={kind === 'text'} onClick={() => { setKind('text'); setContent(''); resetSendRetry(); setSendMessage(''); }}>Text</button><button type="button" className={kind === 'url' ? 'send-tab is-active' : 'send-tab'} aria-pressed={kind === 'url'} onClick={() => { setKind('url'); setContent(''); resetSendRetry(); setSendMessage(''); }}>Link</button></div>
-              <div className="field-group"><label htmlFor="item-content">{kind === 'text' ? 'Text to save' : 'Web address'}</label>{kind === 'text' ? <><textarea id="item-content" rows={4} value={content} onChange={(event) => { setContent(event.target.value); resetSendRetry(); }} disabled={sendBusy} placeholder="Write or paste something…" /><small className="field-hint">Up to 256 KiB UTF-8 · {formatBytes(new TextEncoder().encode(content).byteLength)}</small></> : <input id="item-content" type="url" inputMode="url" value={content} onChange={(event) => { setContent(event.target.value); resetSendRetry(); }} disabled={sendBusy} placeholder="https://example.com" />}</div>
-              <div className="send-options"><div className="field-group"><label htmlFor="item-label">Label <span>(optional)</span></label><input id="item-label" maxLength={200} value={displayName} onChange={(event) => { setDisplayName(event.target.value); resetSendRetry(); }} disabled={sendBusy} placeholder="Give it a name" /></div><div className="field-group"><label htmlFor="item-retention">Keep for</label><select id="item-retention" value={retentionDays} onChange={(event) => { setRetentionDays(Number(event.target.value)); resetSendRetry(); }} disabled={sendBusy}><option value={1}>1 day</option><option value={3}>3 days</option><option value={7}>7 days</option></select></div></div>
-              {kind === 'url' && <p className="send-hint">Links are saved as text. Vault does not open them.</p>}
-              <div className={`send-message ${sendMessage ? (sendError ? 'send-message--error' : 'send-message--notice') : ''}`} role={sendError ? 'alert' : 'status'} aria-live="polite">{sendMessage}</div>
-              <div className="send-actions"><button className="primary-button" type="submit" disabled={sendBusy || !content.trim()}><span>{sendBusy ? 'Sending…' : 'Send to Vault'}</span><span aria-hidden="true">→</span></button>{retryIntent && <button className="secondary-button retry-send" type="button" disabled={sendBusy} onClick={() => void sendItem(undefined, true)}>Retry same item</button>}</div>
-            </form>
-          </section>
-          {!selectedId && <FileUpload retentionDays={retentionDays} onComplete={() => void loadPage(null, false, generationRef.current)} onUnauthorized={signOutOnUnauthorized} />}
-          </div>
-          <section className="items-panel" aria-label="Inbox items">
-            <div className="items-heading"><div><p className="card-kicker">YOUR ITEMS</p><h2>{selectedId ? 'Item details' : 'Recent items'}</h2></div>{selectedId ? <button className="secondary-button mobile-back" type="button" onClick={backToList}>← Back</button> : <button className="secondary-button" type="button" onClick={() => void loadPage(null, false)} disabled={listBusy}>{listBusy ? 'Refreshing…' : 'Refresh'}</button>}</div>
-            {!selectedId && inboxNotice && <p className="inbox-notice" role="status" aria-live="polite">{inboxNotice}</p>}
-            {listError && <p className="panel-error" role="alert">{listError}</p>}
-            {!selectedId && <><ul className="item-list" aria-label="Newest first">{items.map((item) => <li key={item.id}><button type="button" className="item-row" onClick={() => openItem(item.id)}><span className="item-type-icon" aria-hidden="true">{item.type === 'url' ? '↗' : item.type === 'file' ? '↓' : 'T'}</span><span className="item-row-copy"><strong>{item.displayName?.trim() || (item.type === 'url' ? 'Saved link' : item.type === 'file' ? 'File attachment' : 'Text item')}</strong><small>Added {formatDate(item.createdAt)} · {formatBytes(item.sizeBytes)}</small><small>Expires {formatDate(item.expiresAt)}</small></span><span className="item-chevron" aria-hidden="true">›</span></button></li>)}</ul>{!items.length && !listBusy && <div className="inbox-empty"><span aria-hidden="true">◇</span><h3>Your inbox is clear.</h3><p>Send text, a link, or an attachment and it will appear here.</p></div>}{listBusy && !items.length && <p className="panel-loading" role="status">Loading your items…</p>}{nextCursor && <button className="load-more" type="button" disabled={listBusy} onClick={() => void loadPage(nextCursor, true)}>{listBusy ? 'Loading…' : 'Load more'}</button>}</>}
-            {selectedId && <div className="detail-view">{detailBusy && <p className="panel-loading" role="status">Loading item…</p>}{detailError && <p className="panel-error" role="alert">{detailError}</p>}{detail && <><div className="detail-title"><span className="item-type-icon" aria-hidden="true">{detail.type === 'url' ? '↗' : detail.type === 'file' ? '↓' : 'T'}</span><div><p className="card-kicker">{detail.type === 'url' ? 'LINK' : detail.type === 'file' ? 'FILE ATTACHMENT' : 'TEXT'}</p><h3>{detail.displayName?.trim() || (detail.type === 'url' ? 'Saved link' : detail.type === 'file' ? 'File attachment' : 'Text item')}</h3></div></div>{detail.type === 'file' ? <dl className="detail-meta file-detail-meta"><div><dt>File type</dt><dd>{detail.contentType}</dd></div><div><dt>SHA-256</dt><dd><code>{detail.sha256}</code></dd></div></dl> : <pre className="detail-text" tabIndex={0} aria-label="Saved item text">{detail.text}</pre>}<dl className="detail-meta"><div><dt>Sent from</dt><dd>{detail.sourceDevice.name} · {detail.sourceDevice.platform === 'web' ? 'This browser' : detail.sourceDevice.platform}</dd></div><div><dt>Added</dt><dd>{formatDate(detail.createdAt)}</dd></div><div><dt>Expires</dt><dd>{formatDate(detail.expiresAt)}</dd></div><div><dt>Size</dt><dd>{formatBytes(detail.sizeBytes)}</dd></div></dl><p className="copy-message" role="status" aria-live="polite">{copyMessage}</p>{!deleteConfirm ? <div className="detail-actions">{detail.type === 'file' ? <button className="primary-button" type="button" onClick={() => void downloadFile()}>Download attachment</button> : <button className="primary-button" type="button" onClick={() => void copyText()}>Copy text</button>}<button className="danger-button" type="button" onClick={() => setDeleteConfirm(true)}>Delete</button></div> : <div className="delete-confirm" role="group" aria-label="Confirm item deletion"><p>Delete this item from Vault?</p><button className="danger-button" type="button" disabled={deleteBusy} onClick={() => void deleteItem()}>{deleteBusy ? 'Deleting…' : 'Delete item'}</button><button className="secondary-button" type="button" disabled={deleteBusy} onClick={() => setDeleteConfirm(false)}>Cancel</button></div>}{detailError && <p className="panel-error" role="alert">{detailError}</p>}</>}</div>}
-          </section>
+      <header className="topbar">
+        <a className="brand" href="/" aria-label="Vault home">
+          <VaultMark />
+          <span>vault</span>
+        </a>
+        <div className="topbar-right">
+          <span className="topbar-note">PERSONAL RELAY</span>
+          <button
+            type="button"
+            className="theme-toggle-btn"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+          </button>
+          {view === 'signed-in' && (
+            <button className="text-button" type="button" onClick={handleLogout} disabled={busy || revokeBusy}>
+              {busy ? 'Signing out…' : 'Sign out'}
+            </button>
+          )}
         </div>
-      </section>}
-      <footer className="footer"><span>BUILT FOR YOUR OWN DEVICES</span><span className="footer-mark"><span /> PRIVATE BY DESIGN</span></footer>
+      </header>
+
+      {view === 'loading' && (
+        <section className="loading-panel" aria-live="polite" aria-busy="true">
+          <span className="loading-ring" aria-hidden="true" />
+          <p>Restoring your private space…</p>
+        </section>
+      )}
+
+      {view === 'signed-out' && (
+        <section className="auth-layout" aria-labelledby="welcome-title">
+          <div className="intro-panel">
+            <p className="eyebrow"><span className="eyebrow-line" /> YOUR DEVICES, IN SYNC</p>
+            <h1 id="welcome-title">A quieter way<br />to move things.</h1>
+            <p className="intro">A private bridge between your devices. Sign in to open your personal Vault.</p>
+            <div className={`service-status ${serviceOnline === false ? 'service-status--offline' : 'service-status--ready'}`} role="status">
+              <span className="status-dot" />
+              <span>{serviceOnline === null ? 'Checking Vault' : serviceOnline ? 'Vault is ready' : 'Vault is having trouble connecting'}</span>
+            </div>
+          </div>
+          <section className="auth-card" aria-labelledby="signin-title">
+            <div className="auth-card-top">
+              <span className="card-kicker">PRIVATE SPACE</span>
+              <span className="secure-label"><ShieldLockIcon size={12} className="secure-icon" /> SECURE SIGN-IN</span>
+            </div>
+            <h2 id="signin-title">Welcome back</h2>
+            <p className="auth-description">Use your Vault account to continue.</p>
+            <form onSubmit={handleLogin} noValidate>
+              <div className="field-group">
+                <label htmlFor="identifier">Email or username</label>
+                <input ref={identifierRef} id="identifier" name="identifier" type="text" autoComplete="username" inputMode="text" required value={identifier} onChange={(event) => setIdentifier(event.target.value)} disabled={busy} placeholder="Email address or username" />
+              </div>
+              <div className="field-group">
+                <label htmlFor="password">Password</label>
+                <input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} />
+              </div>
+              <div className={`form-message ${message ? (messageKind === 'error' ? 'form-message--error' : 'form-message--notice') : ''}`} role={messageKind === 'error' ? 'alert' : 'status'} aria-live="polite">{message}</div>
+              <button className="primary-button" type="submit" disabled={busy || retrySeconds > 0 || !identifier.trim() || !password}>
+                <span>{busy ? 'Signing in…' : retrySeconds > 0 ? `Try again in ${retrySeconds}s` : 'Sign in'}</span>
+                <ArrowRightIcon />
+              </button>
+            </form>
+            <p className="card-footnote">
+              <ShieldLockIcon size={13} className="footnote-icon" />
+              Your password is only sent over this secure connection.
+            </p>
+          </section>
+        </section>
+      )}
+
+      {view === 'signed-in' && session && (
+        <section className="inbox-layout" aria-labelledby="inbox-title">
+          <div className="inbox-heading-row">
+            <div>
+              <p className="eyebrow"><span className="eyebrow-line" /> YOUR PRIVATE SPACE</p>
+              <h1 ref={inboxHeadingRef} id="inbox-title" tabIndex={-1}>Your inbox</h1>
+              <p className="intro">Signed in as <strong>{session.email}</strong></p>
+            </div>
+            <div className="device-chip">
+              <span className="device-indicator" />
+              <span><b>This browser</b><small>Current session</small></span>
+            </div>
+          </div>
+
+          <div className="account-actions">
+            <PairingPanel onUnauthorized={signOutOnUnauthorized} />
+            <section className="send-card revoke-card" aria-labelledby="revoke-title">
+              <div className="section-heading">
+                <div>
+                  <p className="card-kicker">ACCOUNT SECURITY</p>
+                  <h2 id="revoke-title">Session control</h2>
+                </div>
+                <span className="send-lock" aria-hidden="true"><ShieldLockIcon /></span>
+              </div>
+              <p className="pairing-description">Lost a device or want to start fresh? Revoke every web session and Android refresh token.</p>
+              <p className={`pairing-message ${message && messageKind === 'error' ? 'pairing-message--error' : ''}`} role={messageKind === 'error' ? 'alert' : 'status'} aria-live="polite">
+                {view === 'signed-in' && messageKind === 'error' ? message : ''}
+              </p>
+              {!revokeConfirm ? (
+                <button className="danger-button revoke-button" type="button" onClick={() => setRevokeConfirm(true)}>Sign out everywhere</button>
+              ) : (
+                <div className="revoke-confirm" role="group" aria-label="Confirm sign out everywhere">
+                  <p>This will immediately revoke all web sessions and Android refresh tokens. You will need to sign in again on this browser too.</p>
+                  <button className="danger-button" type="button" disabled={revokeBusy} onClick={() => void handleRevokeEverywhere()}>{revokeBusy ? 'Revoking sessions…' : 'Confirm sign out everywhere'}</button>
+                  <button className="secondary-button" type="button" disabled={revokeBusy} onClick={() => setRevokeConfirm(false)}>Cancel</button>
+                </div>
+              )}
+            </section>
+          </div>
+
+          <div className="quota-card" aria-label="Storage quota">
+            <div className="quota-title">
+              <strong>Vault storage</strong>
+              <span>{quota ? `${formatBytes(quota.activeBytes)} of ${formatBytes(quota.maxActiveBytes)}` : 'Loading usage…'}</span>
+            </div>
+            <div className="quota-track" role="progressbar" aria-label="Storage used" aria-valuemin={0} aria-valuemax={quota?.maxActiveBytes ?? 2_000_000_000} aria-valuenow={quota?.activeBytes ?? 0}>
+              <span style={{ width: `${bytePercent}%` }} />
+            </div>
+            <small>{quota ? `${quota.activeItems.toLocaleString()} of ${quota.maxActiveItems.toLocaleString()} items` : ' '}</small>
+          </div>
+
+          <div className={`vault-workspace ${selectedId ? 'vault-workspace--detail' : ''}`}>
+            <div className="send-stack">
+              <section className="send-card" aria-labelledby="send-title">
+                <div className="section-heading">
+                  <div>
+                    <p className="card-kicker">SEND SOMETHING</p>
+                    <h2 id="send-title">Add to Vault</h2>
+                  </div>
+                  <span className="send-lock" aria-hidden="true"><SendIcon /></span>
+                </div>
+                <form onSubmit={(event) => void sendItem(event)}>
+                  <div className="send-tabs" role="group" aria-label="Item type">
+                    <button type="button" className={kind === 'text' ? 'send-tab is-active' : 'send-tab'} aria-pressed={kind === 'text'} onClick={() => { setKind('text'); setContent(''); resetSendRetry(); setSendMessage(''); }}>Text</button>
+                    <button type="button" className={kind === 'url' ? 'send-tab is-active' : 'send-tab'} aria-pressed={kind === 'url'} onClick={() => { setKind('url'); setContent(''); resetSendRetry(); setSendMessage(''); }}>Link</button>
+                  </div>
+                  <div className="field-group">
+                    <label htmlFor="item-content">{kind === 'text' ? 'Text to save' : 'Web address'}</label>
+                    {kind === 'text' ? (
+                      <>
+                        <textarea id="item-content" rows={4} value={content} onChange={(event) => { setContent(event.target.value); resetSendRetry(); }} disabled={sendBusy} placeholder="Write or paste something…" />
+                        <small className="field-hint">Up to 256 KiB UTF-8 · {formatBytes(new TextEncoder().encode(content).byteLength)}</small>
+                      </>
+                    ) : (
+                      <input id="item-content" type="url" inputMode="url" value={content} onChange={(event) => { setContent(event.target.value); resetSendRetry(); }} disabled={sendBusy} placeholder="https://example.com" />
+                    )}
+                  </div>
+                  <div className="send-options">
+                    <div className="field-group">
+                      <label htmlFor="item-label">Label <span>(optional)</span></label>
+                      <input id="item-label" maxLength={200} value={displayName} onChange={(event) => { setDisplayName(event.target.value); resetSendRetry(); }} disabled={sendBusy} placeholder="Give it a name" />
+                    </div>
+                    <div className="field-group">
+                      <label htmlFor="item-retention">Keep for</label>
+                      <select id="item-retention" value={retentionDays} onChange={(event) => { setRetentionDays(Number(event.target.value)); resetSendRetry(); }} disabled={sendBusy}>
+                        <option value={1}>1 day</option>
+                        <option value={3}>3 days</option>
+                        <option value={7}>7 days</option>
+                      </select>
+                    </div>
+                  </div>
+                  {kind === 'url' && <p className="send-hint">Links are saved as text. Vault does not open them.</p>}
+                  <div className={`send-message ${sendMessage ? (sendError ? 'send-message--error' : 'send-message--notice') : ''}`} role={sendError ? 'alert' : 'status'} aria-live="polite">{sendMessage}</div>
+                  <div className="send-actions">
+                    <button className="primary-button" type="submit" disabled={sendBusy || !content.trim()}>
+                      <span>{sendBusy ? 'Sending…' : 'Send to Vault'}</span>
+                      <ArrowRightIcon />
+                    </button>
+                    {retryIntent && (
+                      <button className="secondary-button retry-send" type="button" disabled={sendBusy} onClick={() => void sendItem(undefined, true)}>Retry same item</button>
+                    )}
+                  </div>
+                </form>
+              </section>
+              {!selectedId && <FileUpload retentionDays={retentionDays} onComplete={() => void loadPage(null, false, generationRef.current)} onUnauthorized={signOutOnUnauthorized} />}
+            </div>
+
+            <section className="items-panel" aria-label="Inbox items">
+              <div className="items-heading">
+                {selectedId ? (
+                  <div className="detail-nav-header">
+                    <button type="button" className="nav-back-button" onClick={backToList} aria-label="Back to recent items">
+                      <ArrowLeftIcon />
+                      <span>Back to items</span>
+                    </button>
+                    <span className="breadcrumb-separator" aria-hidden="true">/</span>
+                    <span className="breadcrumb-current">Item detail</span>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <p className="card-kicker">YOUR ITEMS</p>
+                      <h2>Recent items</h2>
+                    </div>
+                    <button className="secondary-button refresh-button" type="button" onClick={() => void loadPage(null, false)} disabled={listBusy}>
+                      <RefreshIcon className={listBusy ? 'icon-spin' : ''} />
+                      <span>{listBusy ? 'Refreshing…' : 'Refresh'}</span>
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {!selectedId && (
+                <div className="filter-bar" role="tablist" aria-label="Filter items by type">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={filterType === 'all'}
+                    className={`filter-chip ${filterType === 'all' ? 'is-active' : ''}`}
+                    onClick={() => setFilterType('all')}
+                  >
+                    <span>All</span>
+                    <span className="filter-count">{items.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={filterType === 'file'}
+                    className={`filter-chip ${filterType === 'file' ? 'is-active' : ''}`}
+                    onClick={() => setFilterType('file')}
+                  >
+                    <span className="filter-chip-icon"><FileIcon size={12} /></span>
+                    <span>Files</span>
+                    <span className="filter-count">{fileCount}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={filterType === 'url'}
+                    className={`filter-chip ${filterType === 'url' ? 'is-active' : ''}`}
+                    onClick={() => setFilterType('url')}
+                  >
+                    <span className="filter-chip-icon"><LinkIcon size={12} /></span>
+                    <span>Links</span>
+                    <span className="filter-count">{linkCount}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={filterType === 'text'}
+                    className={`filter-chip ${filterType === 'text' ? 'is-active' : ''}`}
+                    onClick={() => setFilterType('text')}
+                  >
+                    <span className="filter-chip-icon"><TextIcon size={12} /></span>
+                    <span>Text</span>
+                    <span className="filter-count">{textCount}</span>
+                  </button>
+                </div>
+              )}
+
+              {!selectedId && inboxNotice && <p className="inbox-notice" role="status" aria-live="polite">{inboxNotice}</p>}
+              {listError && <p className="panel-error" role="alert">{listError}</p>}
+
+              {!selectedId && (
+                <>
+                  <ul className="item-list" aria-label="Newest first">
+                    {filteredItems.map((item) => (
+                      <li key={item.id}>
+                        <button type="button" className="item-row" onClick={() => openItem(item.id)}>
+                          <span className="item-type-icon" aria-hidden="true">
+                            <ItemTypeIcon type={item.type} />
+                          </span>
+                          <span className="item-row-copy">
+                            <strong>{item.displayName?.trim() || (item.type === 'url' ? 'Saved link' : item.type === 'file' ? 'File attachment' : 'Text item')}</strong>
+                            <small>Added {formatDate(item.createdAt)} · {formatBytes(item.sizeBytes)}</small>
+                            <small>Expires {formatDate(item.expiresAt)}</small>
+                          </span>
+                          <span className="item-chevron" aria-hidden="true"><ChevronRightIcon /></span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {!items.length && !listBusy && (
+                    <div className="inbox-empty">
+                      <span className="inbox-empty-icon" aria-hidden="true"><InboxSparkleIcon /></span>
+                      <h3>Your inbox is clear.</h3>
+                      <p>Send text, a link, or an attachment and it will appear here.</p>
+                    </div>
+                  )}
+
+                  {items.length > 0 && !filteredItems.length && !listBusy && (
+                    <div className="inbox-empty">
+                      <span className="inbox-empty-icon" aria-hidden="true"><InboxSparkleIcon /></span>
+                      <h3>No {filterType} items found.</h3>
+                      <p>There are no items matching this filter in your recent items.</p>
+                      <button type="button" className="secondary-button" style={{ marginTop: '12px' }} onClick={() => setFilterType('all')}>
+                        Show all items
+                      </button>
+                    </div>
+                  )}
+
+                  {listBusy && !items.length && (
+                    <div className="skeleton-container" role="status" aria-label="Loading your items…">
+                      <div className="skeleton-card" />
+                      <div className="skeleton-card" />
+                      <div className="skeleton-card" />
+                    </div>
+                  )}
+
+                  {nextCursor && (
+                    <button className="load-more" type="button" disabled={listBusy} onClick={() => void loadPage(nextCursor, true)}>
+                      {listBusy ? 'Loading…' : 'Load more'}
+                    </button>
+                  )}
+                </>
+              )}
+
+              {selectedId && (
+                <div className="detail-view">
+                  {detailBusy && (
+                    <div className="skeleton-container skeleton-container--detail" role="status" aria-label="Loading item details…">
+                      <div className="skeleton-card skeleton-card--detail-header" />
+                      <div className="skeleton-card skeleton-card--detail-body" />
+                      <div className="skeleton-card skeleton-card--detail-meta" />
+                    </div>
+                  )}
+                  {detailError && <p className="panel-error" role="alert">{detailError}</p>}
+                  {detail && (
+                    <>
+                      <div className="detail-title">
+                        <span className="item-type-icon" aria-hidden="true">
+                          <ItemTypeIcon type={detail.type} size={18} />
+                        </span>
+                        <div>
+                          <p className="card-kicker">{detail.type === 'url' ? 'LINK' : detail.type === 'file' ? 'FILE ATTACHMENT' : 'TEXT'}</p>
+                          <h3>{detail.displayName?.trim() || (detail.type === 'url' ? 'Saved link' : detail.type === 'file' ? 'File attachment' : 'Text item')}</h3>
+                        </div>
+                      </div>
+
+                      {detail.type === 'file' ? (
+                        <dl className="detail-meta file-detail-meta">
+                          <div><dt>File type</dt><dd>{detail.contentType}</dd></div>
+                          <div><dt>SHA-256</dt><dd><code>{detail.sha256}</code></dd></div>
+                        </dl>
+                      ) : (
+                        <pre className="detail-text" tabIndex={0} aria-label="Saved item text">{detail.text}</pre>
+                      )}
+
+                      <dl className="detail-meta">
+                        <div><dt>Sent from</dt><dd>{detail.sourceDevice.name} · {detail.sourceDevice.platform === 'web' ? 'This browser' : detail.sourceDevice.platform}</dd></div>
+                        <div><dt>Added</dt><dd>{formatDate(detail.createdAt)}</dd></div>
+                        <div><dt>Expires</dt><dd>{formatDate(detail.expiresAt)}</dd></div>
+                        <div><dt>Size</dt><dd>{formatBytes(detail.sizeBytes)}</dd></div>
+                      </dl>
+
+                      <p className="copy-message" role="status" aria-live="polite">{copyMessage}</p>
+
+                      {!deleteConfirm ? (
+                        <div className="detail-actions">
+                          {detail.type === 'file' ? (
+                            <button className="primary-button" type="button" onClick={() => void downloadFile()}>
+                              <DownloadIcon />
+                              <span>Download attachment</span>
+                            </button>
+                          ) : (
+                            <button className="primary-button" type="button" onClick={() => void copyText()}>
+                              <CopyIcon />
+                              <span>Copy text</span>
+                            </button>
+                          )}
+                          <button className="danger-button" type="button" onClick={() => setDeleteConfirm(true)}>
+                            <TrashIcon />
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="delete-confirm" role="group" aria-label="Confirm item deletion">
+                          <p>Delete this item from Vault?</p>
+                          <button className="danger-button" type="button" disabled={deleteBusy} onClick={() => void deleteItem()}>
+                            <TrashIcon />
+                            <span>{deleteBusy ? 'Deleting…' : 'Delete item'}</span>
+                          </button>
+                          <button className="secondary-button" type="button" disabled={deleteBusy} onClick={() => setDeleteConfirm(false)}>
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+
+                      {detailError && <p className="panel-error" role="alert">{detailError}</p>}
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
+          </div>
+        </section>
+      )}
+
+      <footer className="footer">
+        <span>BUILT FOR YOUR OWN DEVICES</span>
+        <span className="footer-mark"><span /> PRIVATE BY DESIGN</span>
+      </footer>
     </main>
   );
 }

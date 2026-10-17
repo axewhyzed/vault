@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import type { DragEvent } from 'react';
+import { ArrowRightIcon, PlusIcon } from './Icons';
 
 type Csrf = { token: string; headerName: 'X-CSRF-TOKEN' };
 type UploadInit = { uploadId: string; uploadUrl: string; expiresAt: string; maxAcceptedBytes: number };
@@ -49,6 +51,7 @@ export default function FileUpload({ retentionDays, onComplete, onUnauthorized }
   const [message, setMessage] = useState('');
   const [progress, setProgress] = useState(0);
   const [sha256, setSha256] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
   const intentKeyRef = useRef<string | null>(null);
   const intentRetentionRef = useRef<number | null>(null);
   const uploadRef = useRef<UploadInit | null>(null);
@@ -223,19 +226,50 @@ export default function FileUpload({ retentionDays, onComplete, onUnauthorized }
     void run('new');
   }
 
+  function handleDragOver(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (running || phase === 'failed-complete') return;
+    setIsDragOver(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+    setIsDragOver(false);
+  }
+
+  function handleDrop(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(false);
+    if (running || phase === 'failed-complete') return;
+    const dropped = event.dataTransfer.files?.[0];
+    if (dropped) {
+      selectFile(dropped);
+    }
+  }
+
   const retryMode = phase === 'failed-complete' ? 'complete' : phase === 'failed-upload' || (phase === 'cancelled' && uploadRef.current) ? 'upload' : 'new';
   const percent = progress;
 
-  return <section className="file-upload-card" aria-labelledby="file-upload-title">
-    <div className="section-heading"><div><p className="card-kicker">ATTACHMENTS</p><h2 id="file-upload-title">Upload a file</h2></div><span className="send-lock" aria-hidden="true">＋</span></div>
-    <div className="field-group"><label htmlFor="vault-file">Choose a file</label><input id="vault-file" type="file" onChange={(event) => selectFile(event.target.files?.[0] ?? null)} disabled={running || phase === 'failed-complete'} /><small className="field-hint">Files are kept as attachments. Vault never previews their contents.</small></div>
+  return <section
+    className={`file-upload-card ${isDragOver ? 'is-dragover' : ''}`}
+    aria-labelledby="file-upload-title"
+    onDragOver={handleDragOver}
+    onDragLeave={handleDragLeave}
+    onDrop={handleDrop}
+  >
+    <div className="section-heading"><div><p className="card-kicker">ATTACHMENTS</p><h2 id="file-upload-title">Upload a file</h2></div><span className="send-lock" aria-hidden="true"><PlusIcon /></span></div>
+    <div className="field-group"><label htmlFor="vault-file">{isDragOver ? 'Drop file to stage upload' : 'Choose a file or drag & drop'}</label><input id="vault-file" type="file" onChange={(event) => selectFile(event.target.files?.[0] ?? null)} disabled={running || phase === 'failed-complete'} /><small className="field-hint">Files are kept as attachments. Vault never previews their contents.</small></div>
     {file && <dl className="upload-file-meta"><div><dt>File</dt><dd>{file.name}</dd></div><div><dt>Size</dt><dd>{formatBytes(file.size)}</dd></div><div><dt>Type</dt><dd>{file.type || 'Unknown file type'}</dd></div></dl>}
     {uploadRef.current && <p className="field-hint upload-limit">Maximum accepted size for this session: {formatBytes(uploadRef.current.maxAcceptedBytes)}</p>}
     {phase === 'uploading' && <div className="upload-progress"><label htmlFor="upload-progress">Upload progress</label><progress id="upload-progress" max={100} value={percent}>{percent}%</progress><span>{percent}%</span></div>}
     <div className={`send-message ${message ? (phase.startsWith('failed') ? 'send-message--error' : 'send-message--notice') : ''}`} role={phase.startsWith('failed') ? 'alert' : 'status'} aria-live="polite">{message}</div>
     {sha256 && <p className="upload-hash">SHA-256 <code>{sha256}</code></p>}
     <div className="send-actions">
-      {phase === 'complete' ? <button className="secondary-button" type="button" onClick={() => selectFile(null)}>Choose another file</button> : phase === 'restart-required' ? <button className="primary-button" type="button" onClick={startFreshIntent} disabled={!file || running}><span>Start a new upload intent</span><span aria-hidden="true">→</span></button> : phase === 'failed-initiate' || phase === 'failed-upload' || phase === 'failed-complete' || phase === 'cancelled' ? <button className="primary-button" type="button" onClick={() => void run(retryMode)}><span>{phase === 'failed-complete' ? 'Retry finalization' : phase === 'failed-upload' || phase === 'cancelled' && uploadRef.current ? 'Retry upload' : 'Retry setup'}</span><span aria-hidden="true">→</span></button> : <button className="primary-button" type="button" onClick={() => void run()} disabled={!file || running}><span>{running ? phase === 'initiating' ? 'Preparing…' : phase === 'uploading' ? 'Uploading…' : 'Finalizing…' : 'Upload to Vault'}</span><span aria-hidden="true">→</span></button>}
+      {phase === 'complete' ? <button className="secondary-button" type="button" onClick={() => selectFile(null)}>Choose another file</button> : phase === 'restart-required' ? <button className="primary-button" type="button" onClick={startFreshIntent} disabled={!file || running}><span>Start a new upload intent</span><ArrowRightIcon /></button> : phase === 'failed-initiate' || phase === 'failed-upload' || phase === 'failed-complete' || phase === 'cancelled' ? <button className="primary-button" type="button" onClick={() => void run(retryMode)}><span>{phase === 'failed-complete' ? 'Retry finalization' : phase === 'failed-upload' || (phase === 'cancelled' && uploadRef.current) ? 'Retry upload' : 'Retry setup'}</span><ArrowRightIcon /></button> : <button className="primary-button" type="button" onClick={() => void run()} disabled={!file || running}><span>{running ? phase === 'initiating' ? 'Preparing…' : phase === 'uploading' ? 'Uploading…' : 'Finalizing…' : 'Upload to Vault'}</span><ArrowRightIcon /></button>}
       {running && <button className="secondary-button" type="button" onClick={cancel}>Cancel upload</button>}
     </div>
   </section>;

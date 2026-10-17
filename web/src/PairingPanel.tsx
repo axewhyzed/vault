@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import { QrCodeIcon } from './Icons';
 
 type Csrf = { token: string; headerName: 'X-CSRF-TOKEN' };
 type PairingSession = { pairingSessionId: string; pairingSecret: string; serverOrigin: string; expiresAt: string };
@@ -101,7 +102,7 @@ export default function PairingPanel({ onUnauthorized }: Props) {
   }
 
   return <section className="send-card pairing-card" aria-labelledby="pairing-title">
-    <div className="section-heading"><div><p className="card-kicker">ADD A DEVICE</p><h2 id="pairing-title">Pair Android</h2></div><span className="send-lock" aria-hidden="true">⌁</span></div>
+    <div className="section-heading"><div><p className="card-kicker">ADD A DEVICE</p><h2 id="pairing-title">Pair Android</h2></div><span className="send-lock" aria-hidden="true"><QrCodeIcon /></span></div>
     <p className="pairing-description">Create a one-time code for your Android app. It expires after ten minutes. Generating a new code does not invalidate an earlier unused code.</p>
     {pairing && remaining > 0 && <div className="pairing-content">
       <div className="pairing-qr" role="img" aria-label="QR code for Android pairing. It contains a short-lived enrollment secret."><QRCodeSVG value={qrPayload} size={208} level="M" includeMargin /></div>
