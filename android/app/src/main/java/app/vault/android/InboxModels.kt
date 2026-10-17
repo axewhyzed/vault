@@ -21,6 +21,7 @@ data class InboxSummary(
     val expiresAt: String,
     val version: Int,
     val sourceDevice: InboxSourceDevice,
+    val textContent: String? = null,
     internal val ownerOrigin: String = "",
     internal val ownerUserId: String = "",
 )

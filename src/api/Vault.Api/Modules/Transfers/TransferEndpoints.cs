@@ -221,7 +221,8 @@ internal static class TransferEndpoints
     };
 
     private static ItemSummary ToSummary(RelayItem item, VaultDevice device) => new(item.Id, item.Type, item.State, item.DisplayName, item.SizeBytes,
-        item.CreatedAt, item.AvailableAt, item.ExpiresAt, item.Version, new SourceDevice(device.Id, device.Name, device.Platform));
+        item.CreatedAt, item.AvailableAt, item.ExpiresAt, item.Version, new SourceDevice(device.Id, device.Name, device.Platform),
+        item.Type == "file" ? null : item.TextContent);
 
     private static string ResolveDisplayName(string? supplied, string fallback, HttpContext context, out IResult? error)
     {
@@ -283,7 +284,7 @@ internal static class TransferEndpoints
     internal sealed record CreateItemResponse(Guid Id, string Type, string State, DateTime AvailableAt, DateTime ExpiresAt, int Version);
     internal sealed record SourceDevice(Guid Id, string Name, string Platform);
     internal sealed record ItemSummary(Guid Id, string Type, string State, string DisplayName, long SizeBytes, DateTime CreatedAt,
-        DateTime AvailableAt, DateTime ExpiresAt, int Version, SourceDevice SourceDevice);
+        DateTime AvailableAt, DateTime ExpiresAt, int Version, SourceDevice SourceDevice, string? TextContent = null);
     internal sealed record ItemDetailResponse(Guid Id, string Type, string State, string DisplayName, long SizeBytes, DateTime CreatedAt,
         DateTime AvailableAt, DateTime ExpiresAt, int Version, SourceDevice SourceDevice, string? Text, string ContentType, string? DownloadUrl, string? Sha256);
     internal sealed record QuotaResponse(long ActiveBytes, long MaxActiveBytes, long ActiveItems, int MaxActiveItems);
