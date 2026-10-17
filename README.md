@@ -9,7 +9,7 @@
 **Private, self-hosted cross-device relay & inbox between your desktop and Android phone.**
 
 [![Release](https://img.shields.io/github/v/release/axewhyzed/vault?color=2b3b2d&label=Release&logo=github)](https://github.com/axewhyzed/vault/releases)
-[![Download APK](https://img.shields.io/badge/Download-Android%20APK-34a853?logo=android&logoColor=white)](https://github.com/axewhyzed/vault/releases/download/v0.1.0/vault-debug-v0.1.0.apk)
+[![Download APK](https://img.shields.io/badge/Download-Android%20APK-34a853?logo=android&logoColor=white)](https://github.com/axewhyzed/vault/releases/download/v0.2.0/vault-debug-v0.2.0.apk)
 [![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-3DDC84?logo=android&logoColor=white)](android/)
 [![Backend](https://img.shields.io/badge/.NET-10.0%20Minimal%20API-512BD4?logo=dotnet&logoColor=white)](src/api/Vault.Api)
 [![Frontend](https://img.shields.io/badge/React-19%20%2B%20TypeScript-61DAFB?logo=react&logoColor=black)](web/)
@@ -147,11 +147,11 @@ To shut down and retain data: `docker compose down`. To purge all data and keys:
 ### 1. Download & Install APK
 Download the signed debug build from [GitHub Releases](https://github.com/axewhyzed/vault/releases):
 
-👉 **[Download vault-debug-v0.1.0.apk](https://github.com/axewhyzed/vault/releases/download/v0.1.0/vault-debug-v0.1.0.apk)**
+👉 **[Download vault-debug-v0.2.0.apk](https://github.com/axewhyzed/vault/releases/download/v0.2.0/vault-debug-v0.2.0.apk)**
 
 Or install directly via ADB:
 ```powershell
-adb install -r vault-debug-v0.1.0.apk
+adb install -r vault-debug-v0.2.0.apk
 ```
 
 ### 2. Pair Your Phone in 3 Steps
