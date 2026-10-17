@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme for Vault -->
+    <style name="Theme.Vault" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/vault_obsidian</item>
+        <item name="android:navigationBarColor">@color/vault_obsidian</item>
+        <item name="android:windowBackground">@color/vault_obsidian</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Splash Screen Starting Theme -->
+    <style name="Theme.Vault.Starting" parent="Theme.Vault">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+</resources>

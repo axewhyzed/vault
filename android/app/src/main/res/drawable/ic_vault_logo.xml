@@ -1,0 +1,83 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Ambient Emerald Glow -->
+    <path
+        android:fillColor="#1810B981"
+        android:pathData="M54,14 A40,40 0 1 0 54,94 A40,40 0 1 0 54,14 Z" />
+
+    <!-- Outer Faceted Hex-Shield Vault Plate -->
+    <path
+        android:fillColor="#181D24"
+        android:strokeColor="#333842"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round"
+        android:pathData="M36,20 L72,20 L88,36 L88,64 L54,92 L20,64 L20,36 Z" />
+
+    <!-- Inner Armored Plate -->
+    <path
+        android:fillColor="#11151B"
+        android:strokeColor="#282D36"
+        android:strokeWidth="1.5"
+        android:strokeLineJoin="round"
+        android:pathData="M38,26 L70,26 L82,38 L82,62 L54,86 L26,62 L26,38 Z" />
+
+    <!-- Stylized "V" Chevron Armor Bars -->
+    <!-- Left Emerald Chevron -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M33,33 L42,33 L54,65 L47,65 Z" />
+
+    <!-- Right Periwinkle Chevron -->
+    <path
+        android:fillColor="#AEC6FF"
+        android:pathData="M75,33 L66,33 L54,65 L61,65 Z" />
+
+    <!-- Chevron Lower Junction -->
+    <path
+        android:fillColor="#059669"
+        android:pathData="M47,65 L61,65 L54,77 Z" />
+
+    <!-- Outer Concentric Vault Dial Ring -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#10B981"
+        android:strokeWidth="2.5"
+        android:pathData="M54,34 A14,14 0 1 0 54,62 A14,14 0 1 0 54,34 Z" />
+
+    <!-- Inner Core Dial Plate -->
+    <path
+        android:fillColor="#14181E"
+        android:strokeColor="#AEC6FF"
+        android:strokeWidth="1.5"
+        android:pathData="M54,39 A9,9 0 1 0 54,57 A9,9 0 1 0 54,39 Z" />
+
+    <!-- Central Cryptographic Core Node -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,44 L58,48 L54,52 L50,48 Z" />
+
+    <!-- Precision Orbital Security Bolts -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#10B981"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M54,29 L54,32 M54,64 L54,67 M35,48 L38,48 M70,48 L73,48" />
+
+    <!-- Horizontal Data Relay Traces -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#10B981"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M14,48 L22,48 M86,48 L94,48" />
+
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M13,48 A1.5,1.5 0 1 0 13,48.01 Z M95,48 A1.5,1.5 0 1 0 95,48.01 Z" />
+
+</vector>
