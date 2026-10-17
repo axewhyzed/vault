@@ -5,16 +5,36 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -51,6 +71,157 @@ internal fun safeDocumentSuggestion(name: String, fallback: String = "vault-atta
 }
 
 @Composable
+internal fun InboxSkeletonCard(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "skeletonTransition")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "skeletonAlpha"
+    )
+    val shimmerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha)
+
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.55f)
+                        .height(18.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(shimmerColor)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(60.dp)
+                        .height(20.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(shimmerColor)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.35f)
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(shimmerColor)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(shimmerColor)
+            )
+        }
+    }
+}
+
+@Composable
+internal fun QuotaCard(quota: InboxQuota, modifier: Modifier = Modifier) {
+    val progress = if (quota.maxActiveBytes > 0) {
+        (quota.activeBytes.toFloat() / quota.maxActiveBytes.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(durationMillis = 500),
+        label = "quotaProgress"
+    )
+    ElevatedCard(
+        modifier = modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Vault storage",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    "${formatBytes(quota.activeBytes)} of ${formatBytes(quota.maxActiveBytes)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            LinearProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+            )
+            Text(
+                "${quota.activeItems} of ${quota.maxActiveItems} items",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun TypeBadge(type: String, sizeBytes: Long) {
+    val isDark = isSystemInDarkTheme()
+    val (icon, label, tintColor) = when (type.lowercase()) {
+        "file" -> Triple(
+            Icons.Filled.Description,
+            formatBytes(sizeBytes),
+            if (isDark) Color(0xFF90CAF9) else Color(0xFF1976D2)
+        )
+        "url", "link" -> Triple(
+            Icons.Filled.Link,
+            "Link",
+            if (isDark) Color(0xFFCE93D8) else Color(0xFF7B1FA2)
+        )
+        else -> Triple(
+            Icons.Filled.FormatQuote,
+            "Text",
+            if (isDark) Color(0xFFA5D6A7) else Color(0xFF2E7D32)
+        )
+    }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = tintColor.copy(alpha = if (isDark) 0.22f else 0.12f),
+        contentColor = tintColor
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 internal fun InboxTab(
     api: VaultApi,
     store: EncryptedStore,
@@ -62,6 +233,7 @@ internal fun InboxTab(
     val scope = rememberCoroutineScope()
     var rows by remember(ownerKey) { mutableStateOf<List<InboxSummary>>(emptyList()) }
     var nextCursor by remember(ownerKey) { mutableStateOf<String?>(null) }
+    var quota by remember(ownerKey) { mutableStateOf<InboxQuota?>(null) }
     var hasLoaded by remember(ownerKey) { mutableStateOf(false) }
     var pageLoading by remember(ownerKey) { mutableStateOf(false) }
     var pageError by remember(ownerKey) { mutableStateOf<String?>(null) }
@@ -105,6 +277,7 @@ internal fun InboxTab(
             if (epoch == requestEpoch && ownerStillCurrent()) {
                 rows = if (reset) page.items else (rows + page.items).distinctBy { it.id }
                 nextCursor = page.nextCursor
+                quota = page.quota
                 hasLoaded = true
             }
         } catch (e: Exception) {
@@ -143,7 +316,7 @@ internal fun InboxTab(
 
     LaunchedEffect(ownerKey) {
         requestEpoch++
-        rows = emptyList(); nextCursor = null; hasLoaded = false; selected = null
+        rows = emptyList(); nextCursor = null; quota = null; hasLoaded = false; selected = null
         detailId = null; pageError = null; detailError = null; showOperationMessage(null)
         fetchPage(reset = true)
     }
@@ -194,7 +367,12 @@ internal fun InboxTab(
             detailError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (detail == null && !detailLoading) detailError?.let { TextButton(onClick = { detailId?.let { id -> scope.launch { openDetail(id) } } }) { Text("Retry") } }
             detail?.let { item ->
-                DetailContent(item, operationBusy, downloadProgress, operationMessage, operationMessageIsError,
+                DetailContent(
+                    item = item,
+                    busy = operationBusy,
+                    progressBytes = downloadProgress,
+                    message = operationMessage,
+                    messageIsError = operationMessageIsError,
                     onCopy = { value ->
                         if (isInboxItemExpired(item.expiresAt)) showOperationMessage("This item has expired.", isError = true)
                         else {
@@ -232,46 +410,247 @@ internal fun InboxTab(
                                 finally { operationBusy = false }
                             }
                         }
-                    })
+                    },
+                    onDelete = {
+                        operationBusy = true
+                        showOperationMessage("Deleting item…")
+                        scope.launch {
+                            val res = api.deleteItem(item.id)
+                            operationBusy = false
+                            res.onSuccess {
+                                rows = rows.filter { it.id != item.id }
+                                showOperationMessage("Item deleted.")
+                                selected = null
+                                detailId = null
+                                detailError = null
+                                downloadFile?.delete()
+                                downloadFile = null
+                            }.onFailure { e ->
+                                showOperationMessage((e as? Exception)?.safeInboxMessage() ?: "Could not delete item.", isError = true)
+                            }
+                        }
+                    }
+                )
             }
         } else {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Inbox", style = MaterialTheme.typography.titleLarge)
                 TextButton(onClick = { scope.launch { fetchPage(reset = true) } }, enabled = !pageLoading, modifier = Modifier.heightIn(min = 48.dp)) { Text("Refresh") }
             }
-            if (pageLoading && !hasLoaded) LinearProgressIndicator(Modifier.fillMaxWidth())
+            operationMessage?.let { msg ->
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (operationMessageIsError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            msg,
+                            color = if (operationMessageIsError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { showOperationMessage(null) }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Filled.Close, contentDescription = "Dismiss notice", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+            if (pageLoading && !hasLoaded) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    repeat(3) {
+                        InboxSkeletonCard()
+                    }
+                }
+            }
             pageError?.let { error ->
                 Text(error, color = MaterialTheme.colorScheme.error)
                 TextButton(onClick = { scope.launch { fetchPage(reset = pageRetryReset) } }, enabled = !pageLoading, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry") }
             }
-            if (hasLoaded && rows.isEmpty() && pageError == null) Text("Your inbox is empty.")
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(rows, key = { it.id }) { item -> InboxRow(item) { scope.launch { openDetail(item.id) } } }
-                if (rows.isNotEmpty() && nextCursor != null) item(key = "inbox-load-more") {
-                    OutlinedButton(onClick = { scope.launch { fetchPage(reset = false) } }, enabled = !pageLoading, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Text(if (pageLoading) "Loading more…" else "Load more")
+            if (hasLoaded) {
+                PullToRefreshBox(
+                    isRefreshing = pageLoading,
+                    onRefresh = { scope.launch { fetchPage(reset = true) } },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        quota?.let { q ->
+                            item(key = "inbox-quota-card") {
+                                QuotaCard(q)
+                            }
+                        }
+                        if (rows.isEmpty() && pageError == null) {
+                            item(key = "inbox-empty-message") {
+                                Text("Your inbox is empty.", modifier = Modifier.padding(vertical = 16.dp))
+                            }
+                        }
+                        items(rows, key = { it.id }) { item ->
+                            InboxRow(
+                                item = item,
+                                onClick = { scope.launch { openDetail(item.id) } },
+                                onDelete = {
+                                    scope.launch {
+                                        val res = api.deleteItem(item.id)
+                                        res.onSuccess {
+                                            rows = rows.filter { it.id != item.id }
+                                            showOperationMessage("Item deleted.")
+                                        }.onFailure { e ->
+                                            showOperationMessage((e as? Exception)?.safeInboxMessage() ?: "Could not delete item.", isError = true)
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                        if (rows.isNotEmpty() && nextCursor != null) item(key = "inbox-load-more") {
+                            OutlinedButton(onClick = { scope.launch { fetchPage(reset = false) } }, enabled = !pageLoading, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                Text(if (pageLoading) "Loading more…" else "Load more")
+                            }
+                        }
+                        if (pageLoading) item(key = "inbox-more-progress") { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                     }
                 }
-                if (pageLoading && hasLoaded) item(key = "inbox-more-progress") { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             }
         }
     }
-
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InboxRow(item: InboxSummary, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).semantics { contentDescription = "${item.displayName}, ${item.type}, ${formatBytes(item.sizeBytes)}, from ${item.sourceDevice.name}, expires ${formatInstant(item.expiresAt)}. Open details." }) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(item.displayName, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("${item.type} · ${formatBytes(item.sizeBytes)} · ${item.state.lowercase()}")
-            Text("From ${item.sourceDevice.name} · expires ${formatInstant(item.expiresAt)}", style = MaterialTheme.typography.bodySmall)
+private fun InboxRow(
+    item: InboxSummary,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var showConfirmDelete by remember { mutableStateOf(false) }
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) {
+                showConfirmDelete = true
+            }
+            false
+        }
+    )
+
+    if (showConfirmDelete) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDelete = false },
+            title = { Text("Delete item") },
+            text = { Text("Delete this item from Vault? This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showConfirmDelete = false
+                        onDelete()
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDelete = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CardDefaults.shape)
+                    .background(MaterialTheme.colorScheme.error)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "Delete item",
+                    tint = MaterialTheme.colorScheme.onError
+                )
+            }
+        }
+    ) {
+        Card(
+            Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button, onClick = onClick)
+                .semantics {
+                    contentDescription = "${item.displayName}, ${item.type}, ${formatBytes(item.sizeBytes)}, from ${item.sourceDevice.name}, expires ${formatInstant(item.expiresAt)}. Open details."
+                }
+        ) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        item.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    TypeBadge(type = item.type, sizeBytes = item.sizeBytes)
+                }
+                Text("${item.type} · ${formatBytes(item.sizeBytes)} · ${item.state.lowercase()}")
+                Text("From ${item.sourceDevice.name} · expires ${formatInstant(item.expiresAt)}", style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
 
 @Composable
-private fun DetailContent(item: InboxDetail, busy: Boolean, progressBytes: Long, message: String?, messageIsError: Boolean, onCopy: (String) -> Unit, onOpen: () -> Unit, onDownload: () -> Unit) {
+private fun DetailContent(
+    item: InboxDetail,
+    busy: Boolean,
+    progressBytes: Long,
+    message: String?,
+    messageIsError: Boolean,
+    onCopy: (String) -> Unit,
+    onOpen: () -> Unit,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var showConfirmDelete by remember { mutableStateOf(false) }
+
+    if (showConfirmDelete) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDelete = false },
+            title = { Text("Delete item") },
+            text = { Text("Delete this item from Vault? This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showConfirmDelete = false
+                        onDelete()
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDelete = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(item.displayName, style = MaterialTheme.typography.headlineSmall)
         Text("${item.type} · ${item.contentType ?: "text/plain"} · ${formatBytes(item.sizeBytes)}")
@@ -292,6 +671,19 @@ private fun DetailContent(item: InboxDetail, busy: Boolean, progressBytes: Long,
                 Button(onClick = onDownload, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Download attachment") }
             }
         }
+        Button(
+            onClick = { showConfirmDelete = true },
+            enabled = !busy,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
+            ),
+            modifier = Modifier.heightIn(min = 48.dp)
+        ) {
+            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Delete item")
+        }
         if (busy) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             if (progressBytes > 0) Text("Receiving and verifying: ${formatBytes(progressBytes)} of ${formatBytes(item.sizeBytes)}.")
@@ -300,13 +692,13 @@ private fun DetailContent(item: InboxDetail, busy: Boolean, progressBytes: Long,
     }
 }
 
-private fun formatBytes(bytes: Long): String = when {
+internal fun formatBytes(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     else -> "${bytes / (1024 * 1024)} MB"
 }
 
-private fun formatInstant(value: String): String = runCatching {
+internal fun formatInstant(value: String): String = runCatching {
     DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault()).format(Instant.parse(value))
 }.getOrDefault(value)
 

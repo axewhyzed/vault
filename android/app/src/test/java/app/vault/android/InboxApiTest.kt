@@ -128,4 +128,48 @@ class InboxApiTest {
             assertEquals("Bearer va1_rotated", retry.getHeader("Authorization"))
         } finally { server.shutdown() }
     }
+
+    @Test fun deleteItemIssuesAuthedDeleteRequestAndReturnsSuccessOn204() = kotlinx.coroutines.runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = store(server)
+            server.enqueue(MockResponse().setResponseCode(204))
+            val result = VaultApi(store).deleteItem("123e4567-e89b-12d3-a456-426614174000")
+            assertTrue(result.isSuccess)
+            val request = server.takeRequest()
+            assertEquals("DELETE", request.method)
+            assertEquals("/api/v1/items/123e4567-e89b-12d3-a456-426614174000", request.path)
+            assertEquals("Bearer va1_access", request.getHeader("Authorization"))
+            assertEquals("no-store", request.getHeader("Cache-Control"))
+        } finally { server.shutdown() }
+    }
+
+    @Test fun deleteItemRotatesTokenOn401() = kotlinx.coroutines.runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = store(server)
+            server.enqueue(MockResponse().setResponseCode(401).setBody("{}"))
+            server.enqueue(MockResponse().setBody("""{"tokenType":"Bearer","accessToken":"va1_rotated","accessTokenExpiresAt":"2099-01-01T00:00:00Z","refreshToken":"vr1_rotated","refreshTokenExpiresAt":"2099-02-01T00:00:00Z","userId":"owner","deviceId":"device"}"""))
+            server.enqueue(MockResponse().setResponseCode(204))
+            val result = VaultApi(store).deleteItem("123e4567-e89b-12d3-a456-426614174000")
+            assertTrue(result.isSuccess)
+            val requests = (1..3).map { server.takeRequest() }
+            assertEquals("DELETE", requests[0].method)
+            assertEquals("/api/v1/auth/refresh", requests[1].path)
+            assertEquals("Bearer va1_rotated", requests[2].getHeader("Authorization"))
+            assertEquals("DELETE", requests[2].method)
+        } finally { server.shutdown() }
+    }
+
+    @Test fun deleteItemFailsOnMalformedIdWithoutNetwork() = kotlinx.coroutines.runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = store(server)
+            val result = VaultApi(store).deleteItem("invalid-id")
+            assertTrue(result.isFailure)
+            val failure = result.exceptionOrNull() as ApiFailure
+            assertEquals("invalid_item_id", failure.code)
+            assertEquals(0, server.requestCount)
+        } finally { server.shutdown() }
+    }
 }
