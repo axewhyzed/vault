@@ -2,12 +2,12 @@
 
 <div align="center">
 
-<svg aria-hidden="true" viewBox="0 0 32 32" width="72" height="72"><rect x="2" y="2" width="28" height="28" rx="9" fill="#2b3b2d" /><path d="M9 11.25h2.55l4.45 10.1 4.45-10.1H23l-6.05 13.5h-1.9L9 11.25Z" fill="#f5f4ef" /><circle cx="23.1" cy="8.9" r="1.35" fill="#34a853" /></svg>
+<img src="docs/assets/logos/vault_logo.svg" alt="Vault Logo" width="80" height="80" />
 
 ### *A private, self-hosted clipboard and file drop between your PC and Android phone.*
 
 [![Release](https://img.shields.io/github/v/release/axewhyzed/vault?color=2b3b2d&label=Release&logo=github)](https://github.com/axewhyzed/vault/releases)
-[![Download APK](https://img.shields.io/badge/Download-Android%20APK%20(v0.4.0)-34a853?logo=android&logoColor=white)](https://github.com/axewhyzed/vault/releases)
+[![Download APK](https://img.shields.io/badge/Download-Android%20APK%20(v0.8.0)-34a853?logo=android&logoColor=white)](https://github.com/axewhyzed/vault/releases)
 [![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-3DDC84?logo=android&logoColor=white)](android/)
 [![Backend](https://img.shields.io/badge/.NET-10.0%20Minimal%20API-512BD4?logo=dotnet&logoColor=white)](src/api/Vault.Api)
 [![Frontend](https://img.shields.io/badge/React-19%20%2B%20TypeScript-61DAFB?logo=react&logoColor=black)](web/)
@@ -100,6 +100,8 @@ Ever find yourself emailing a link to yourself, messaging a bot on Telegram or W
   - **Text Snippets:** Copy directly to your clipboard.
   - **Files:** Download directly to your chosen default folder (with progress indicator and a toast notification), or open immediately using native Android apps via the system resolver.
 - 🔍 **Live Search:** Search received items instantly by file name, text content, payload type, or sending device across both web and mobile.
+- 📱 **Connected Devices & Remote Revocation:** Inspect all active devices and browser sessions from the web workspace or Android Hub. Terminate stale sessions remotely with one click.
+- 🔄 **Reactive Session State & Auto-Expiry:** 14-day sliding refresh tokens automatically clean up on expiration. Foreground app resumes proactively verify token health without interrupting offline workflows, instantly routing to the sign-in screen if revoked.
 - 🧹 **Flexible Retention & Automated Reaper:** Keep items for hours (1–168h) or days (1–7d). An automated background worker sweeps expired items and orphaned files on schedule.
 - 📁 **Custom Download Folder (Android):** Choose where files get saved on your phone (e.g. `Downloads/Vault`) using the standard Android folder picker. Once selected, downloads save there automatically without asking each time.
 - 🔒 **Granular Session Control:** Log out of your current device with one tap, or revoke all active sessions across all devices from the confirmed security modal.
@@ -137,10 +139,11 @@ flowchart LR
 
 ### Technical Details
 
-- **Backend API (`src/api/Vault.Api`):** Built with ASP.NET Core 10 Minimal APIs and EF Core. File uploads are streamed directly from HTTP request bodies into a mounted disk volume—files never buffer in server RAM or bloat the database. Uploads calculate SHA-256 hashes on the fly to guarantee payload integrity. An automated background worker periodically cleans expired items and orphaned staging files. In development mode, native OpenAPI 3.1 documentation is served via an interactive Scalar reference at `/scalar/v1`.
-- **Desktop Web Client (`web/`):** React 19 + TypeScript single-page application served via Nginx. Session management uses `HttpOnly`, `SameSite=Lax`, encrypted cookies paired with anti-CSRF tokens to protect against cross-origin attacks. Keyboard shortcuts allow rapid navigation (`/` to search, `Escape` to close modals).
+- **Backend API (`src/api/Vault.Api`):** Built with ASP.NET Core 10 Minimal APIs and EF Core. File uploads are streamed directly from HTTP request bodies into a mounted disk volume—files never buffer in server RAM or bloat the database. Uploads calculate SHA-256 hashes on the fly to guarantee payload integrity. Active sessions are automatically deduplicated per physical device/browser to eliminate ghost sessions. An automated background worker periodically cleans expired items and orphaned staging files. In development mode, native OpenAPI 3.1 documentation is served via an interactive Scalar reference at `/scalar/v1`.
+- **Desktop Web Client (`web/`):** React 19 + TypeScript single-page application served via Nginx. Session management uses `HttpOnly`, `SameSite=Lax`, encrypted cookies paired with anti-CSRF tokens to protect against cross-origin attacks. Includes real-time connected device inspection, remote device revocation, and keyboard shortcuts (`/` to search, `Escape` to close modals).
 - **Android Client (`android/`):** Native Kotlin application built with Jetpack Compose and Material 3.
-  - **Authentication:** Uses cryptographically scoped bearer tokens (`va1_` access tokens, `vr1_` refresh tokens) stored in Android `EncryptedSharedPreferences`. Sessions use a 14-day sliding expiration that refreshes automatically on active usage.
+  - **Branding & Splash:** Custom chiseled dual-tone shield icon and native Android 12+ Splash Screen (`androidx.core:core-splashscreen`) for instantaneous, glitch-free cold launches.
+  - **Authentication & Lifecycle:** Scoped bearer tokens (`va1_` access tokens, `vr1_` refresh tokens) stored in Android `EncryptedSharedPreferences`. A reactive `StateFlow` revision synchronizes authentication across Compose layers, immediately routing to login on revocation or expiry. Foreground resume runs a non-intrusive heartbeat (`/api/v1/auth/me`) that remains offline-tolerant.
   - **Background Work:** Uses Android `WorkManager` with network constraints to manage the Outbox queue, retrying uploads gracefully with exponential backoff if connectivity drops.
   - **Storage & System Integration:** Uses Android Storage Access Framework (SAF) with persistable URI permissions for default download folders, and `androidx.core.content.FileProvider` for launching system viewing intents securely.
 - **Database (`infra/`):** PostgreSQL 18 stores user credentials (Argon2id/PBKDF2), active device sessions, item metadata, and transfer audit logs.
@@ -183,11 +186,11 @@ To stop and erase all data: `docker compose down --volumes`.
 ### 1. Download & Install APK
 Download the signed debug build from [GitHub Releases](https://github.com/axewhyzed/vault/releases):
 
-👉 **[Download vault-debug-v0.4.0.apk](https://github.com/axewhyzed/vault/releases)**
+👉 **[Download vault-debug-v0.8.0.apk](https://github.com/axewhyzed/vault/releases)**
 
 Or install directly onto a connected phone or emulator via ADB:
 ```powershell
-adb install -r vault-debug-v0.4.0.apk
+adb install -r vault-debug-v0.8.0.apk
 ```
 
 ### 2. Sign In or Pair
