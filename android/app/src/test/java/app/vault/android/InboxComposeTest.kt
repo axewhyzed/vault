@@ -159,6 +159,27 @@ class InboxComposeTest {
         assertEquals(1, scanned)
     }
 
+    @Test fun welcomeScreenExposesScanQrAndSignInActions() {
+        var scanned = 0
+        var loggedIn = 0
+        compose.setContent {
+            MaterialTheme {
+                WelcomeScreen(
+                    onScanQr = { scanned++ },
+                    onLogin = { _, _, _, _ -> loggedIn++ },
+                    defaultOrigin = "https://vault.example",
+                    defaultDeviceName = "Pixel 8",
+                    busy = false,
+                )
+            }
+        }
+
+        compose.onNodeWithText("Scan QR Code").assertExists()
+        compose.onNodeWithText("Sign In with Credentials").assertExists()
+        compose.onNodeWithText("Scan QR Code").performClick()
+        assertEquals(1, scanned)
+    }
+
     @Test fun signOutDialogExplainsGlobalEffectAndCanBeCanceledOrConfirmed() {
         var confirmed = 0
         val visible = mutableStateOf(true)

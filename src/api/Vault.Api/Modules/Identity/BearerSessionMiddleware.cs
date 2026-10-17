@@ -41,13 +41,19 @@ internal sealed class BearerSessionMiddleware(RequestDelegate next)
                                where credential.TokenHash == hash && credential.TokenType == "access"
                                    && credential.RevokedAt == null && credential.ExpiresAt > now
                                    && session.RevokedAt == null && device.RevokedAt == null && user.Status == "active"
-                               select new { user.Id, session.DeviceId }).SingleOrDefaultAsync(context.RequestAborted);
+                               select new { user.Id, session.DeviceId, SessionId = session.Id }).SingleOrDefaultAsync(context.RequestAborted);
             if (match is null)
             {
                 await IdentityErrors.Create(context, 401, "invalid_token", "A valid bearer token is required.").ExecuteAsync(context);
                 return;
             }
-            var claims = new[] { new Claim("userId", match.Id.ToString()), new Claim("deviceId", match.DeviceId.ToString()), new Claim(ClaimTypes.NameIdentifier, match.Id.ToString()) };
+            var claims = new[]
+            {
+                new Claim("userId", match.Id.ToString()),
+                new Claim("deviceId", match.DeviceId.ToString()),
+                new Claim("sessionId", match.SessionId.ToString()),
+                new Claim(ClaimTypes.NameIdentifier, match.Id.ToString())
+            };
             context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "VaultBearer"));
         }
         await next(context);

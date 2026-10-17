@@ -49,4 +49,54 @@ class EncryptedStoreTest {
         store.clearCredentials(); store.deleteDraft(draft.id)
         store.deleteDraft(fileDraft.id)
     }
+
+    @Test fun cachedInboxIsEncryptedAndPersisted() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val testKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+        val store = EncryptedStore(context, VaultCrypto(testKey))
+
+        val summary = InboxSummary(
+            id = "item-123",
+            type = "file",
+            state = "available",
+            displayName = "confidential-report.pdf",
+            sizeBytes = 2048,
+            createdAt = "2026-10-17T12:00:00Z",
+            availableAt = "2026-10-17T12:00:01Z",
+            expiresAt = "2026-10-24T12:00:00Z",
+            version = 1,
+            sourceDevice = InboxSourceDevice("dev-1", "Laptop", "web"),
+            ownerOrigin = "https://vault.example",
+            ownerUserId = "user-1",
+        )
+        val quota = InboxQuota(activeBytes = 2048, maxActiveBytes = 10000, activeItems = 1, maxActiveItems = 100)
+        val cache = CachedInbox(
+            ownerKey = "https://vault.example|user-1",
+            cachedAtEpochMillis = 1729166400000L,
+            items = listOf(summary),
+            nextCursor = "cursor-abc",
+            quota = quota,
+        )
+
+        store.saveInboxCache(cache)
+
+        // Verify disk file is encrypted
+        val rawBytes = java.io.File(context.filesDir, "vault-private/cache/inbox_cache.bin").readBytes().toString(Charsets.ISO_8859_1)
+        assertFalse(rawBytes.contains("confidential-report.pdf"))
+        assertFalse(rawBytes.contains("item-123"))
+
+        // Verify decrypted retrieval
+        val loaded = store.cachedInbox()
+        assertNotNull(loaded)
+        assertEquals(cache.ownerKey, loaded!!.ownerKey)
+        assertEquals(cache.cachedAtEpochMillis, loaded.cachedAtEpochMillis)
+        assertEquals(cache.nextCursor, loaded.nextCursor)
+        assertEquals(cache.quota?.activeBytes, loaded.quota?.activeBytes)
+        assertEquals(1, loaded.items.size)
+        assertEquals("confidential-report.pdf", loaded.items[0].displayName)
+
+        // Clear cache
+        store.clearInboxCache()
+        assertNull(store.cachedInbox())
+    }
 }

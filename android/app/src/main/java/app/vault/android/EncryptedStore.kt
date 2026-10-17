@@ -12,11 +12,21 @@ import java.nio.file.StandardCopyOption
 
 data class Credentials(val origin: String, val accessToken: String, val accessExpiry: String, val refreshToken: String, val refreshExpiry: String, val userId: String, val deviceId: String)
 
+data class CachedInbox(
+    val ownerKey: String,
+    val cachedAtEpochMillis: Long,
+    val items: List<InboxSummary>,
+    val nextCursor: String?,
+    val quota: InboxQuota?
+)
+
 class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCrypto()) {
     private val root = File(context.filesDir, "vault-private").apply { mkdirs() }
     private val drafts = File(root, "drafts").apply { mkdirs() }
     private val blobs = File(root, "spool").apply { mkdirs() }
+    private val cacheDir = File(root, "cache").apply { mkdirs() }
     private val credentialFile = File(root, "credentials.bin")
+    private val inboxCacheFile = File(cacheDir, "inbox_cache.bin")
 
     @Synchronized fun saveCredentials(value: Credentials) = writeEncrypted(credentialFile, JSONObject().apply {
         put("origin", value.origin); put("accessToken", value.accessToken); put("accessExpiry", value.accessExpiry)
@@ -28,7 +38,10 @@ class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCr
             Credentials(it.getString("origin"), it.getString("accessToken"), it.getString("accessExpiry"), it.getString("refreshToken"), it.getString("refreshExpiry"), it.getString("userId"), it.getString("deviceId"))
         } } catch (_: Exception) { null }
     }
-    @Synchronized fun clearCredentials() { credentialFile.delete() }
+    @Synchronized fun clearCredentials() {
+        credentialFile.delete()
+        clearInboxCache()
+    }
     fun saveDraft(draft: Draft) = writeEncrypted(draftFile(draft.id), draft.json().toString().toByteArray())
     fun draft(id: String): Draft? = try { Draft.from(JSONObject(crypto.decrypt(draftFile(id).readBytes()).toString(Charsets.UTF_8))) } catch (_: Exception) { null }
     @Synchronized fun allDrafts(): List<Draft> {
@@ -56,6 +69,100 @@ class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCr
     fun spool(name: String): InputStream = crypto.decrypting(FileInputStream(spoolFile(name)))
     fun hasSpool(name: String?) = name != null && spoolFile(name).isFile
     fun deleteSpool(name: String?) { name?.let { spoolFile(it).delete() } }
+
+    @Synchronized fun saveInboxCache(value: CachedInbox) = writeEncrypted(inboxCacheFile, JSONObject().apply {
+        put("ownerKey", value.ownerKey)
+        put("cachedAtEpochMillis", value.cachedAtEpochMillis)
+        put("nextCursor", value.nextCursor ?: JSONObject.NULL)
+        if (value.quota != null) {
+            put("quota", JSONObject().apply {
+                put("activeBytes", value.quota.activeBytes)
+                put("maxActiveBytes", value.quota.maxActiveBytes)
+                put("activeItems", value.quota.activeItems)
+                put("maxActiveItems", value.quota.maxActiveItems)
+            })
+        }
+        val array = JSONArray()
+        value.items.forEach { item ->
+            array.put(JSONObject().apply {
+                put("id", item.id)
+                put("type", item.type)
+                put("state", item.state)
+                put("displayName", item.displayName)
+                put("sizeBytes", item.sizeBytes)
+                put("createdAt", item.createdAt)
+                put("availableAt", item.availableAt)
+                put("expiresAt", item.expiresAt)
+                put("version", item.version)
+                put("device", JSONObject().apply {
+                    put("id", item.sourceDevice.id)
+                    put("name", item.sourceDevice.name)
+                    put("platform", item.sourceDevice.platform)
+                })
+                put("ownerOrigin", item.ownerOrigin)
+                put("ownerUserId", item.ownerUserId)
+            })
+        }
+        put("items", array)
+    }.toString().toByteArray())
+
+    @Synchronized fun cachedInbox(): CachedInbox? {
+        if (!inboxCacheFile.exists()) return null
+        return try {
+            val json = JSONObject(crypto.decrypt(inboxCacheFile.readBytes()).toString(Charsets.UTF_8))
+            val ownerKey = json.getString("ownerKey")
+            val cachedAt = json.getLong("cachedAtEpochMillis")
+            val nextCursor = if (json.isNull("nextCursor")) null else json.optString("nextCursor").takeIf { it.isNotBlank() }
+            val quota = if (json.has("quota") && !json.isNull("quota")) {
+                val q = json.getJSONObject("quota")
+                InboxQuota(
+                    q.getLong("activeBytes"),
+                    q.getLong("maxActiveBytes"),
+                    q.getLong("activeItems"),
+                    q.getInt("maxActiveItems")
+                )
+            } else null
+            val array = json.optJSONArray("items") ?: JSONArray()
+            val items = (0 until array.length()).map { i ->
+                val obj = array.getJSONObject(i)
+                val dev = obj.getJSONObject("device")
+                InboxSummary(
+                    id = obj.getString("id"),
+                    type = obj.getString("type"),
+                    state = obj.getString("state"),
+                    displayName = obj.getString("displayName"),
+                    sizeBytes = obj.getLong("sizeBytes"),
+                    createdAt = obj.getString("createdAt"),
+                    availableAt = obj.getString("availableAt"),
+                    expiresAt = obj.getString("expiresAt"),
+                    version = obj.getInt("version"),
+                    sourceDevice = InboxSourceDevice(
+                        id = dev.getString("id"),
+                        name = dev.getString("name"),
+                        platform = dev.getString("platform")
+                    ),
+                    ownerOrigin = obj.optString("ownerOrigin", ""),
+                    ownerUserId = obj.optString("ownerUserId", "")
+                )
+            }
+            CachedInbox(ownerKey, cachedAt, items, nextCursor, quota)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    @Synchronized fun clearInboxCache() {
+        inboxCacheFile.delete()
+    }
+
+    @Synchronized fun spoolSize(): Long =
+        blobs.listFiles()?.sumOf { it.length() } ?: 0L
+
+    @Synchronized fun clearLocalCache() {
+        blobs.listFiles()?.forEach { it.delete() }
+        clearInboxCache()
+    }
+
     private fun writeEncrypted(file: File, bytes: ByteArray) {
         val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeBytes(crypto.encrypt(bytes))

@@ -73,6 +73,64 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
         return Credentials(payload.serverOrigin, tokens.getString("accessToken"), tokens.getString("accessTokenExpiresAt"), tokens.getString("refreshToken"), tokens.getString("refreshTokenExpiresAt"), tokens.getString("userId"), tokens.getString("deviceId"))
     }
 
+    fun deviceLogin(serverOrigin: String, identifier: String, password: String, deviceName: String): Result<Credentials> = runCatching {
+        val origin = serverOrigin.trim().removeSuffix("/")
+        val body = JSONObject().apply {
+            put("identifier", identifier.trim())
+            put("password", password)
+            put("deviceName", deviceName.trim())
+            put("platform", "android")
+        }.toString()
+        val result = execute("$origin/api/v1/devices/login", "POST", body)
+        val tokens = JSONObject(result)
+        require(tokens.getString("tokenType") == "Bearer") { "Unexpected token type." }
+        val creds = Credentials(
+            origin = origin,
+            accessToken = tokens.getString("accessToken"),
+            accessExpiry = tokens.getString("accessTokenExpiresAt"),
+            refreshToken = tokens.getString("refreshToken"),
+            refreshExpiry = tokens.getString("refreshTokenExpiresAt"),
+            userId = tokens.getString("userId"),
+            deviceId = tokens.getString("deviceId")
+        )
+        store.saveCredentials(creds)
+        creds
+    }
+
+    fun revokeCurrentDevice(): Result<Unit> = runCatching {
+        val credentials = store.credentials() ?: throw ApiFailure(401, "sign_in_required", "Pair this device again.")
+        val current = CredentialRefreshCoordinator.current(store, credentials.origin, credentials.userId, ::refresh)
+        try {
+            postRevokeCurrent(current)
+        } catch (e: ApiFailure) {
+            if (e.status != 401) throw e
+            val updated = CredentialRefreshCoordinator.afterUnauthorized(store, credentials.origin, credentials.userId, current.accessToken, ::refresh)
+            postRevokeCurrent(updated)
+        }
+        store.clearCredentials()
+    }
+
+    private fun postRevokeCurrent(credentials: Credentials) {
+        val request = Request.Builder().url(credentials.origin + "/api/v1/devices/revoke-current")
+            .header("Authorization", "Bearer ${credentials.accessToken}").post("{}".toRequestBodyJson()).build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful && response.code != 204) throw failure(response.code, response.body?.string().orEmpty())
+        }
+    }
+
+    fun ping(): Long? {
+        val origin = store.credentials()?.origin ?: return null
+        val start = System.currentTimeMillis()
+        return try {
+            val request = Request.Builder().url("$origin/health/live").get().build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) System.currentTimeMillis() - start else null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun revokeAll(): Boolean {
         val credentials = store.credentials() ?: throw ApiFailure(401, "sign_in_required", "Pair this device again.")
         val current = CredentialRefreshCoordinator.current(store, credentials.origin, credentials.userId, ::refresh)
@@ -368,6 +426,7 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
         val safe = when (code) {
             "pairing_consumed" -> "This pairing code was already used. Create a fresh QR code and try again."
             "pairing_invalid" -> "This pairing code is invalid or expired. Create a fresh QR code and try again."
+            "invalid_credentials" -> "Email or username and password did not match."
             "invalid_refresh_token" -> "This phone needs to be paired again."
             else -> when (status) { 404 -> "Upload was not found."; 410 -> "Upload expired. Share the item again."; 413 -> "Item exceeds the 100 MB file limit."; 401, 403 -> "Session expired or revoked. Pair this device again."; else -> "Upload could not finish ($code)." }
         }

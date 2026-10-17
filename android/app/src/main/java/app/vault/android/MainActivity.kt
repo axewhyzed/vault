@@ -19,6 +19,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import kotlinx.coroutines.delay
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.journeyapps.barcodescanner.ScanContract
@@ -30,12 +31,12 @@ import androidx.lifecycle.lifecycleScope
 import java.util.UUID
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 
-private enum class VaultDestination { SEND, INBOX, ACTIVITY }
+private enum class VaultDestination { SEND, INBOX, HUB }
 private enum class NoticeTone { INFO, SUCCESS, ERROR }
 
 class MainActivity : ComponentActivity() {
@@ -320,14 +321,13 @@ class MainActivity : ComponentActivity() {
             accountScreen -> accountScreen = false
             reviewDraftId != null -> {
                 reviewDraftId = null
-                selectedDestination = VaultDestination.ACTIVITY
+                selectedDestination = VaultDestination.SEND
             }
             composeKind != null -> {
-                val preparedFileId = composeFileDraft?.id
                 composeKind = null
                 composeFileDraft = null
                 editingDraftId = null
-                selectedDestination = if (preparedFileId != null) VaultDestination.ACTIVITY else VaultDestination.SEND
+                selectedDestination = VaultDestination.SEND
             }
         }
     }
@@ -388,59 +388,97 @@ class MainActivity : ComponentActivity() {
         VaultTheme {
             if (credentials == null) {
                 Scaffold(
-                    topBar = { TopAppBar(title = { Text("Pair Vault") }) },
                     snackbarHost = snackbarHost,
                 ) { innerPadding ->
-                    Column(
+                    Box(
                         Modifier.fillMaxSize().padding(innerPadding).consumeWindowInsets(innerPadding)
-                            .imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                            .imePadding()
                     ) {
-                        Text("Send and receive between this phone and your PC.", style = MaterialTheme.typography.bodyLarge)
-                        PairingCodeEntry(
-                            value = pasteText,
-                            onValueChange = { pasteText = it },
-                            onContinue = { parsePairing(pasteText) },
-                            onScan = { scanner.launch(ScanOptions().setPrompt("Scan Vault pairing QR").setBeepEnabled(false).setOrientationLocked(false)) },
-                        )
-                        payload?.let { selected ->
-                            Card(Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text("Pair with ${selected.serverOrigin}", style = MaterialTheme.typography.titleMedium)
-                                    if (selected.pairingSecret == null) OutlinedTextField(
-                                        secret, { secret = it }, label = { Text("10-minute pairing secret") },
-                                        visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true,
-                                    )
-                                    OutlinedTextField(deviceName, { deviceName = it.take(100) }, label = { Text("Phone name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                                    Button(
-                                        onClick = {
-                                            if (pairingInProgress) return@Button
-                                            pairingInProgress = true
-                                            scope.launch {
-                                                try {
-                                                    if ((pairingDeadline ?: 0L) <= System.currentTimeMillis()) {
-                                                        payload = null; secret = ""; pasteText = ""
-                                                        showStatus("Pairing code expired. Create a fresh QR code.", NoticeTone.ERROR)
-                                                        return@launch
-                                                    }
-                                                    showStatus("Pairing…")
-                                                    try {
-                                                        val paired = withContext(Dispatchers.IO) { vaultApi(this@MainActivity).pair(selected, secret.trim(), deviceName.trim()) }
-                                                        store.saveCredentials(paired); payload = null; pairingDeadline = null; secret = ""; pasteText = ""
-                                                        selectedDestination = VaultDestination.SEND
-                                                        showStatus("This phone is paired.", NoticeTone.SUCCESS)
-                                                        refreshCounter++
-                                                    } catch (e: java.io.IOException) {
-                                                        showStatus("Pairing response was lost. Create a fresh pairing QR and pair again.", NoticeTone.ERROR)
-                                                    } catch (e: Exception) {
-                                                        showStatus(e.message ?: "Pairing failed. Create a fresh pairing QR if this code was already used.", NoticeTone.ERROR)
-                                                    }
-                                                } finally { pairingInProgress = false }
+                        if (payload == null) {
+                            WelcomeScreen(
+                                onScanQr = { scanner.launch(ScanOptions().setPrompt("Scan Vault pairing QR").setBeepEnabled(false).setOrientationLocked(false)) },
+                                onLogin = { origin, identifier, password, devName ->
+                                    if (pairingInProgress) return@WelcomeScreen
+                                    pairingInProgress = true
+                                    scope.launch {
+                                        showStatus("Signing in…")
+                                        try {
+                                            val result = withContext(Dispatchers.IO) {
+                                                vaultApi(this@MainActivity).deviceLogin(origin, identifier, password, devName)
                                             }
-                                        },
-                                        enabled = secret.isNotBlank() && deviceName.isNotBlank() && !pairingInProgress,
-                                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                                    ) { Text(if (pairingInProgress) "Pairing…" else "Pair phone") }
+                                            result.onSuccess {
+                                                deviceName = devName
+                                                selectedDestination = VaultDestination.SEND
+                                                showStatus("Signed in to Vault.", NoticeTone.SUCCESS)
+                                                refreshCounter++
+                                            }.onFailure { e ->
+                                                showStatus(e.message ?: "Sign-in failed.", NoticeTone.ERROR)
+                                            }
+                                        } catch (e: Exception) {
+                                            showStatus(e.message ?: "Sign-in failed.", NoticeTone.ERROR)
+                                        } finally {
+                                            pairingInProgress = false
+                                        }
+                                    }
+                                },
+                                defaultOrigin = BuildConfig.PAIRING_SERVER_ORIGIN,
+                                defaultDeviceName = deviceName,
+                                busy = pairingInProgress,
+                                errorMessage = if (statusTone == NoticeTone.ERROR) statusMessage else null,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            payload?.let { selected ->
+                                Column(
+                                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Card(Modifier.fillMaxWidth()) {
+                                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            Text("Pair with ${selected.serverOrigin}", style = MaterialTheme.typography.titleMedium)
+                                            if (selected.pairingSecret == null) OutlinedTextField(
+                                                secret, { secret = it }, label = { Text("10-minute pairing secret") },
+                                                visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true,
+                                            )
+                                            OutlinedTextField(deviceName, { deviceName = it.take(100) }, label = { Text("Phone name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                OutlinedButton(
+                                                    onClick = { payload = null; secret = ""; pairingDeadline = null },
+                                                    modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                                                ) { Text("Cancel") }
+                                                Button(
+                                                    onClick = {
+                                                        if (pairingInProgress) return@Button
+                                                        pairingInProgress = true
+                                                        scope.launch {
+                                                            try {
+                                                                if ((pairingDeadline ?: 0L) <= System.currentTimeMillis()) {
+                                                                    payload = null; secret = ""
+                                                                    showStatus("Pairing code expired. Create a fresh QR code.", NoticeTone.ERROR)
+                                                                    return@launch
+                                                                }
+                                                                showStatus("Pairing…")
+                                                                try {
+                                                                    val paired = withContext(Dispatchers.IO) { vaultApi(this@MainActivity).pair(selected, secret.trim(), deviceName.trim()) }
+                                                                    store.saveCredentials(paired); payload = null; pairingDeadline = null; secret = ""
+                                                                    selectedDestination = VaultDestination.SEND
+                                                                    showStatus("This phone is paired.", NoticeTone.SUCCESS)
+                                                                    refreshCounter++
+                                                                } catch (e: java.io.IOException) {
+                                                                    showStatus("Pairing response was lost. Create a fresh pairing QR and pair again.", NoticeTone.ERROR)
+                                                                } catch (e: Exception) {
+                                                                    showStatus(e.message ?: "Pairing failed. Create a fresh pairing QR if this code was already used.", NoticeTone.ERROR)
+                                                                }
+                                                            } finally { pairingInProgress = false }
+                                                        }
+                                                    },
+                                                    enabled = secret.isNotBlank() && deviceName.isNotBlank() && !pairingInProgress,
+                                                    modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                                                ) { Text(if (pairingInProgress) "Pairing…" else "Pair phone") }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -454,7 +492,7 @@ class MainActivity : ComponentActivity() {
                     composeKind != null -> composeKind?.let { kind -> when (kind) { ComposeKind.TEXT -> "Send text"; ComposeKind.LINK -> "Send link"; ComposeKind.FILE -> "Send file" } } ?: "Send"
                     selectedDestination == VaultDestination.SEND -> "Send"
                     selectedDestination == VaultDestination.INBOX -> "Inbox"
-                    else -> "Activity"
+                    else -> "Vault Hub"
                 }
                 Scaffold(
                     topBar = {
@@ -466,8 +504,8 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             actions = {
-                                if (!accountScreen) IconButton(onClick = { accountScreen = true }) {
-                                    Icon(Icons.Filled.AccountCircle, contentDescription = "Account and connection")
+                                if (!accountScreen && selectedDestination != VaultDestination.HUB) IconButton(onClick = { selectedDestination = VaultDestination.HUB }) {
+                                    Icon(Icons.Filled.Hub, contentDescription = "Vault Hub")
                                 }
                             },
                         )
@@ -485,9 +523,9 @@ class MainActivity : ComponentActivity() {
                                 icon = { Icon(Icons.Filled.Inbox, contentDescription = null) }, label = { Text("Inbox") },
                             )
                             NavigationBarItem(
-                                selected = selectedDestination == VaultDestination.ACTIVITY,
-                                onClick = { selectedDestination = VaultDestination.ACTIVITY },
-                                icon = { Icon(Icons.Filled.History, contentDescription = null) }, label = { Text("Activity") },
+                                selected = selectedDestination == VaultDestination.HUB,
+                                onClick = { selectedDestination = VaultDestination.HUB },
+                                icon = { Icon(Icons.Filled.Hub, contentDescription = null) }, label = { Text("Hub") },
                             )
                         }
                     },
@@ -503,7 +541,7 @@ class MainActivity : ComponentActivity() {
                                     draft = draft,
                                     onSend = { retention ->
                                         runCatching { draftQueue().send(draft.id, retention) }
-                                            .onSuccess { reviewDraftId = null; selectedDestination = VaultDestination.ACTIVITY; showStatus("Added to Activity. Upload will retry if the network drops.", NoticeTone.SUCCESS); refreshCounter++ }
+                                            .onSuccess { reviewDraftId = null; selectedDestination = VaultDestination.SEND; showStatus("Added to Vault. Upload will retry if the network drops.", NoticeTone.SUCCESS); refreshCounter++ }
                                             .onFailure { showStatus(it.message ?: "Could not queue this send.", NoticeTone.ERROR) }
                                     },
                                     onEdit = { retention ->
@@ -545,22 +583,28 @@ class MainActivity : ComponentActivity() {
                                 "${credentials.origin}|${credentials.userId}|${credentials.deviceId}",
                                 foregroundToken, Modifier.fillMaxSize(),
                             )
-                            else -> ActivityScreen(
-                                drafts = drafts,
-                                onReview = { reviewDraftId = it },
-                                onRetry = { draft ->
-                                    store.saveDraft(draft.copy(state = DraftState.QUEUED, safeError = null, bytesSent = 0))
-                                    UploadWorker.enqueue(this@MainActivity, draft.id)
-                                    showStatus("Retry queued.", NoticeTone.SUCCESS)
-                                    refreshCounter++
+                            else -> HubScreen(
+                                api = vaultApi(this@MainActivity),
+                                store = store,
+                                credentials = credentials,
+                                deviceName = deviceName,
+                                onSignOutCurrentDevice = {
+                                    scope.launch {
+                                        showStatus("Signing out of this phone…")
+                                        try {
+                                            withContext(Dispatchers.IO) { vaultApi(this@MainActivity).revokeCurrentDevice() }
+                                            reviewDraftId = null
+                                            selectedDestination = VaultDestination.SEND
+                                            showStatus("Signed out of this phone.", NoticeTone.INFO)
+                                        } catch (e: Exception) {
+                                            showStatus(e.message ?: "Sign out failed.", NoticeTone.ERROR)
+                                        } finally {
+                                            refreshCounter++
+                                        }
+                                    }
                                 },
-                                onRemove = { draft ->
-                                    UploadWorker.cancel(this@MainActivity, draft.id)
-                                    store.deleteDraft(draft.id)
-                                    showStatus("Failed send removed.")
-                                    refreshCounter++
-                                },
-                                onStartSend = { selectedDestination = VaultDestination.SEND },
+                                onSignOutEverywhere = { signOutConfirmation = true },
+                                onShowMessage = { showStatus(it) },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -610,7 +654,7 @@ class MainActivity : ComponentActivity() {
         Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("This draft is no longer available.", style = MaterialTheme.typography.titleLarge)
             Text("Return to Activity and choose another send.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(onClick = { reviewDraftId = null; selectedDestination = VaultDestination.ACTIVITY }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open Activity") }
+            Button(onClick = { reviewDraftId = null; selectedDestination = VaultDestination.SEND }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back to Send") }
         }
     }
 
