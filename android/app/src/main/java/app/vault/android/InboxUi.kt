@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -33,12 +35,15 @@ import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import androidx.compose.ui.Alignment
@@ -715,11 +720,10 @@ internal fun InboxTab(
                         }
                         if (filteredRows.isEmpty() && pageError == null) {
                             item(key = "inbox-empty-message") {
-                                Text(
-                                    if (searchQuery.isBlank() && filterType == "all") "Your inbox is empty."
-                                    else if (searchQuery.isNotBlank()) "No items match \"$searchQuery\"."
-                                    else "No ${filterType} items in your inbox.",
-                                    modifier = Modifier.padding(vertical = 16.dp)
+                                InboxEmptyCard(
+                                    searchQuery = searchQuery,
+                                    filterType = filterType,
+                                    onRefresh = { scope.launch { fetchPage(reset = true) } }
                                 )
                             }
                         }
@@ -982,6 +986,86 @@ private fun DetailContent(
             if (progressBytes > 0 && item.sizeBytes > 0) Text("Receiving and verifying: ${formatBytes(progressBytes)} of ${formatBytes(item.sizeBytes)}.")
         }
         message?.let { Text(it, color = if (messageIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
+    }
+}
+
+@Composable
+private fun InboxEmptyCard(
+    searchQuery: String,
+    filterType: String,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isDefaultEmpty = searchQuery.isBlank() && filterType == "all"
+    val headingText = if (isDefaultEmpty) {
+        "Your inbox is empty."
+    } else if (searchQuery.isNotBlank()) {
+        "No items match \"$searchQuery\"."
+    } else {
+        "No ${filterType} items in your inbox."
+    }
+
+    val subtitleText = if (isDefaultEmpty) {
+        "Items sent from your paired devices or web app will appear here instantly."
+    } else {
+        "Try adjusting your search terms or filter selection to find what you're looking for."
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (searchQuery.isNotBlank()) Icons.Filled.Search else Icons.Filled.Inbox,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = headingText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = subtitleText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+            OutlinedButton(
+                onClick = onRefresh,
+                modifier = Modifier.heightIn(min = 44.dp)
+            ) {
+                Text("Check for updates")
+            }
+        }
     }
 }
 

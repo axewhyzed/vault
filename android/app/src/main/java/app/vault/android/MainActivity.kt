@@ -33,6 +33,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 
@@ -64,6 +67,7 @@ class MainActivity : ComponentActivity() {
     private var statusTone by mutableStateOf(NoticeTone.INFO)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(R.style.Theme_Vault)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val processLaunchIntent = shouldHandleLaunchIntent(savedInstanceState != null)
@@ -497,7 +501,25 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     topBar = {
                         TopAppBar(
-                            title = { Text(title) },
+                            title = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    if (!isSubpage) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_vault_logo),
+                                            contentDescription = "Vault",
+                                            tint = Color.Unspecified,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    }
+                                    Text(
+                                        text = title,
+                                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                                    )
+                                }
+                            },
                             navigationIcon = {
                                 if (isSubpage) IconButton(onClick = ::backFromFullScreen) {
                                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
