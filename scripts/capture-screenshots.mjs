@@ -75,7 +75,7 @@ async function run() {
       availableAt: new Date(Date.now() - 3600000 * 2).toISOString(),
       expiresAt: new Date(Date.now() + 86400000 * 6).toISOString(),
       version: 1,
-      sourceDevice: { id: 'dev_phone_01', name: 'OnePlus 12 (Android)', platform: 'android' }
+      sourceDevice: { id: 'dev_phone_01', name: 'Pixel 9 Pro (Android)', platform: 'android' }
     },
     {
       id: 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
@@ -87,7 +87,7 @@ async function run() {
       availableAt: new Date(Date.now() - 3600000 * 5).toISOString(),
       expiresAt: new Date(Date.now() + 86400000 * 4).toISOString(),
       version: 1,
-      sourceDevice: { id: 'dev_phone_01', name: 'OnePlus 12 (Android)', platform: 'android' }
+      sourceDevice: { id: 'dev_phone_01', name: 'Pixel 9 Pro (Android)', platform: 'android' }
     },
     {
       id: 'c3d4e5f6-a7b8-9012-cdef-123456789012',
@@ -99,7 +99,19 @@ async function run() {
       availableAt: new Date(Date.now() - 3600000 * 18).toISOString(),
       expiresAt: new Date(Date.now() + 86400000 * 2).toISOString(),
       version: 1,
-      sourceDevice: { id: 'dev_phone_01', name: 'OnePlus 12 (Android)', platform: 'android' }
+      sourceDevice: { id: 'dev_phone_01', name: 'Pixel 9 Pro (Android)', platform: 'android' }
+    },
+    {
+      id: 'd4e5f6a7-b8c9-0123-def0-123456789013',
+      type: 'file',
+      state: 'available',
+      displayName: 'backup-snapshot-2026-10-17.tar.zst',
+      sizeBytes: 5830000,
+      createdAt: new Date(Date.now() - 3600000 * 26).toISOString(),
+      availableAt: new Date(Date.now() - 3600000 * 26).toISOString(),
+      expiresAt: new Date(Date.now() + 86400000 * 5).toISOString(),
+      version: 1,
+      sourceDevice: { id: 'dev_web_desktop', name: 'Brave (Linux)', platform: 'web' }
     }
   ];
 
@@ -176,7 +188,7 @@ async function run() {
 
   // 3. Click Pair Android & Capture Pairing Modal / QR code
   console.log('Generating pairing code...');
-  const pairButton = page.locator('button.pairing-create');
+  const pairButton = page.locator('button[aria-label="Pair Android Phone"]');
   await pairButton.waitFor({ state: 'visible', timeout: 5000 });
   await pairButton.click();
   await page.waitForSelector('.pairing-qr', { timeout: 5000 });

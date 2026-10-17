@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Vault.Api.Modules.Shared.Persistence;
 
@@ -10,8 +11,8 @@ namespace Vault.Api.Modules.Identity;
 internal static class DeviceAuthEndpoints
 {
     private static readonly TimeSpan PairingLifetime = TimeSpan.FromMinutes(10);
-    private static readonly TimeSpan AccessLifetime = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan RefreshLifetime = TimeSpan.FromDays(30);
+    private static readonly TimeSpan AccessLifetime = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan RefreshLifetime = TimeSpan.FromDays(14);
 
     public static IEndpointRouteBuilder MapDeviceAuthEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -22,6 +23,12 @@ internal static class DeviceAuthEndpoints
         devices.MapPost("/pair", PairAsync).AllowAnonymous()
             .WithName("PairAndroidDevice").WithSummary("Pair an Android device using a one time pairing secret.")
             .Accepts<PairRequest>("application/json").Produces<TokenResponse>(201).Produces(400).Produces(401).Produces(409).Produces(415).Produces(429);
+        devices.MapPost("/login", DeviceLoginAsync).AllowAnonymous()
+            .WithName("DeviceLogin").WithSummary("Sign in an Android device using username/email and password.")
+            .Accepts<DeviceLoginRequest>("application/json").Produces<TokenResponse>(201).Produces(400).Produces(401).Produces(415).Produces(429);
+        devices.MapPost("/revoke-current", RevokeCurrentDeviceAsync).RequireAuthorization()
+            .WithName("RevokeCurrentDevice").WithSummary("Revoke the calling device session.")
+            .Produces(204).Produces(401).Produces(403);
 
         var auth = endpoints.MapGroup("/api/v1/auth").WithTags("Authentication");
         auth.MapPost("/refresh", RefreshAsync).AllowAnonymous()
@@ -137,7 +144,138 @@ internal static class DeviceAuthEndpoints
         db.AuditEvents.Add(Audit("device_paired", pair.UserId, device.Id, context));
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
-        return Results.Json(new TokenResponse("Bearer", access, now.Add(AccessLifetime), refresh, now.Add(RefreshLifetime), pair.UserId, device.Id), statusCode: 201);
+        return Results.Json(new TokenResponse("Bearer", access, now.Add(AccessLifetime), refresh, session.RefreshExpiresAt, pair.UserId, device.Id), statusCode: 201);
+    }
+
+    private static async Task<IResult> DeviceLoginAsync(
+        DeviceLoginRequest? request,
+        HttpContext context,
+        VaultDbContext db,
+        IPasswordHasher<VaultUser> hasher,
+        CredentialAttemptLimiter limiter,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Headers.Vary = "Authorization";
+        if (!JsonOnly(context)) return Error(context, 415, "json_required", "Content-Type must be application/json.");
+        if (request is null || string.IsNullOrWhiteSpace(request.Identifier) || string.IsNullOrEmpty(request.Password)
+            || string.IsNullOrWhiteSpace(request.DeviceName) || request.DeviceName.Trim().Length > 100 || request.DeviceName.Any(char.IsControl))
+        {
+            return Error(context, 400, "invalid_request", "Identifier, password, and device name are required.");
+        }
+
+        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        if (!limiter.TryConsume(ip, out var retryAfterSeconds))
+        {
+            context.Response.Headers.RetryAfter = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return Error(context, 429, "rate_limited", "Too many sign-in attempts. Try again later.");
+        }
+
+        var identifier = request.Identifier.Trim();
+        var normalized = identifier.ToUpperInvariant();
+        var matches = await db.Users
+            .Where(x => x.NormalizedEmail == normalized || x.NormalizedUsername == normalized)
+            .Take(2)
+            .ToListAsync(ct);
+        var user = matches.Count == 1 ? matches[0] : null;
+        var hashOwner = user ?? limiter.DummyUser;
+        var verification = hasher.VerifyHashedPassword(hashOwner, hashOwner.PasswordHash, request.Password);
+        if (user is null || user.Status != "active" || verification == PasswordVerificationResult.Failed)
+        {
+            db.AuditEvents.Add(new VaultAuditEvent
+            {
+                EventType = "device_login_failed",
+                ActorUserId = user?.Id,
+                CorrelationId = context.TraceIdentifier
+            });
+            await db.SaveChangesAsync(ct);
+            return Error(context, 401, "invalid_credentials", "Identifier and password did not match.");
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (!await LockOwnerAsync(db, user.Id, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
+        if (verification == PasswordVerificationResult.SuccessRehashNeeded)
+            user.PasswordHash = hasher.HashPassword(user, request.Password);
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var platform = string.IsNullOrWhiteSpace(request.Platform) ? "android" : request.Platform.Trim();
+        var device = new VaultDevice
+        {
+            UserId = user.Id,
+            Name = request.DeviceName.Trim(),
+            Platform = platform,
+            CreatedAt = now
+        };
+        var session = new AndroidSession
+        {
+            UserId = user.Id,
+            DeviceId = device.Id,
+            CreatedAt = now,
+            RefreshExpiresAt = now.Add(RefreshLifetime)
+        };
+        var access = NewToken("va1_");
+        var refresh = NewToken("vr1_");
+        db.Devices.Add(device);
+        db.AndroidSessions.Add(session);
+        db.DeviceCredentials.Add(Credential(session.Id, "access", access, now, now.Add(AccessLifetime)));
+        db.DeviceCredentials.Add(Credential(session.Id, "refresh", refresh, now, session.RefreshExpiresAt));
+        db.AuditEvents.Add(Audit("device_login_succeeded", user.Id, device.Id, context));
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+
+        return Results.Json(new TokenResponse("Bearer", access, now.Add(AccessLifetime), refresh, session.RefreshExpiresAt, user.Id, device.Id), statusCode: 201);
+    }
+
+    private static async Task<IResult> RevokeCurrentDeviceAsync(
+        HttpContext context,
+        VaultDbContext db,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var userId = IdentityEndpoints.GetGuid(context.User, "userId");
+        var deviceId = IdentityEndpoints.GetGuid(context.User, "deviceId");
+        var sessionId = IdentityEndpoints.GetGuid(context.User, "sessionId");
+        var now = clock.GetUtcNow().UtcDateTime;
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (!await LockOwnerAsync(db, userId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
+
+        if (deviceId != Guid.Empty)
+        {
+            var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.UserId == userId, ct);
+            if (device is not null && device.RevokedAt is null)
+            {
+                device.RevokedAt = now;
+            }
+        }
+
+        AndroidSession? session = null;
+        if (sessionId != Guid.Empty)
+        {
+            session = await db.AndroidSessions.SingleOrDefaultAsync(x => x.Id == sessionId && x.UserId == userId, ct);
+        }
+        else if (deviceId != Guid.Empty)
+        {
+            session = await db.AndroidSessions.SingleOrDefaultAsync(x => x.DeviceId == deviceId && x.UserId == userId && x.RevokedAt == null, ct);
+        }
+
+        if (session is not null && session.RevokedAt is null)
+        {
+            session.RevokedAt = now;
+            await db.DeviceCredentials.Where(x => x.SessionId == session.Id && x.RevokedAt == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, now), ct);
+        }
+
+        db.AuditEvents.Add(Audit("device_revoked", userId, deviceId, context));
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+
+        if (context.User.Identity?.AuthenticationType == IdentityEndpoints.Scheme)
+            await context.SignOutAsync(IdentityEndpoints.Scheme);
+
+        return Results.NoContent();
     }
 
     private static async Task<IResult> RefreshAsync(RefreshRequest? request, HttpContext context, VaultDbContext db, TimeProvider clock, CancellationToken ct)
@@ -177,6 +315,7 @@ internal static class DeviceAuthEndpoints
         credential.RevokedAt = now;
         await db.DeviceCredentials.Where(x => x.SessionId == session.Id && x.TokenType == "access" && x.RevokedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, now), ct);
+        session.RefreshExpiresAt = now.Add(RefreshLifetime);
         var access = NewToken("va1_");
         var refresh = NewToken("vr1_");
         db.DeviceCredentials.Add(Credential(session.Id, "access", access, now, now.Add(AccessLifetime)));
@@ -222,6 +361,7 @@ internal static class DeviceAuthEndpoints
     private static VaultAuditEvent Audit(string type, Guid? userId, Guid? deviceId, HttpContext context) => new() { EventType = type, ActorUserId = userId, ActorDeviceId = deviceId, CorrelationId = context.TraceIdentifier };
     private static IResult Error(HttpContext context, int status, string code, string message) => IdentityErrors.Create(context, status, code, message);
 
+    internal sealed record DeviceLoginRequest(string Identifier, string Password, string DeviceName, string? Platform = "android");
     internal sealed record PairRequest(Guid PairingSessionId, string PairingSecret, string DeviceName);
     internal sealed record RefreshRequest(string RefreshToken);
     internal sealed record PairingSessionResponse(Guid PairingSessionId, string PairingSecret, string ServerOrigin, DateTime ExpiresAt);

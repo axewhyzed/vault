@@ -252,6 +252,7 @@ internal fun InboxTab(
     var detailEpoch by remember(ownerKey) { mutableIntStateOf(0) }
     var lastForeground by remember(ownerKey) { mutableIntStateOf(Int.MIN_VALUE) }
     var refreshQueued by remember(ownerKey) { mutableStateOf(false) }
+    var isBackgroundSyncing by remember(ownerKey) { mutableStateOf(false) }
 
     fun ownerStillCurrent(): Boolean {
         val current = store.credentials() ?: return false
@@ -279,6 +280,9 @@ internal fun InboxTab(
                 nextCursor = page.nextCursor
                 quota = page.quota
                 hasLoaded = true
+                if (reset) {
+                    store.saveInboxCache(CachedInbox(ownerKey, System.currentTimeMillis(), page.items, page.nextCursor, page.quota))
+                }
             }
         } catch (e: Exception) {
             if (epoch == requestEpoch && ownerStillCurrent()) {
@@ -316,14 +320,42 @@ internal fun InboxTab(
 
     LaunchedEffect(ownerKey) {
         requestEpoch++
-        rows = emptyList(); nextCursor = null; quota = null; hasLoaded = false; selected = null
-        detailId = null; pageError = null; detailError = null; showOperationMessage(null)
-        fetchPage(reset = true)
+        selected = null; detailId = null; pageError = null; detailError = null; showOperationMessage(null)
+        val cached = store.cachedInbox()
+        if (cached != null && cached.ownerKey == ownerKey) {
+            rows = cached.items
+            nextCursor = cached.nextCursor
+            quota = cached.quota
+            hasLoaded = true
+            val isFresh = (System.currentTimeMillis() - cached.cachedAtEpochMillis) < 10 * 60 * 1000L
+            if (!isFresh) {
+                isBackgroundSyncing = true
+                try {
+                    fetchPage(reset = true)
+                } finally {
+                    isBackgroundSyncing = false
+                }
+            }
+        } else {
+            rows = emptyList(); nextCursor = null; quota = null; hasLoaded = false
+            fetchPage(reset = true)
+        }
     }
     LaunchedEffect(ownerKey, foregroundToken) {
         if (lastForeground != foregroundToken) {
             lastForeground = foregroundToken
-            if (hasLoaded) fetchPage(reset = true)
+            if (hasLoaded) {
+                val cached = store.cachedInbox()
+                val isFresh = cached != null && cached.ownerKey == ownerKey && (System.currentTimeMillis() - cached.cachedAtEpochMillis) < 10 * 60 * 1000L
+                if (!isFresh) {
+                    isBackgroundSyncing = true
+                    try {
+                        fetchPage(reset = true)
+                    } finally {
+                        isBackgroundSyncing = false
+                    }
+                }
+            }
         }
     }
 
@@ -437,6 +469,9 @@ internal fun InboxTab(
                 Text("Inbox", style = MaterialTheme.typography.titleLarge)
                 TextButton(onClick = { scope.launch { fetchPage(reset = true) } }, enabled = !pageLoading, modifier = Modifier.heightIn(min = 48.dp)) { Text("Refresh") }
             }
+            if (isBackgroundSyncing || (hasLoaded && pageLoading)) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(2.dp))
+            }
             operationMessage?.let { msg ->
                 Card(
                     colors = CardDefaults.cardColors(
@@ -495,12 +530,21 @@ internal fun InboxTab(
                         items(rows, key = { it.id }) { item ->
                             InboxRow(
                                 item = item,
+                                modifier = Modifier.animateItem(),
                                 onClick = { scope.launch { openDetail(item.id) } },
                                 onDelete = {
                                     scope.launch {
                                         val res = api.deleteItem(item.id)
                                         res.onSuccess {
                                             rows = rows.filter { it.id != item.id }
+                                            val updatedQuota = quota?.let { q ->
+                                                q.copy(
+                                                    activeItems = maxOf(0L, q.activeItems - 1),
+                                                    activeBytes = maxOf(0L, q.activeBytes - item.sizeBytes)
+                                                )
+                                            }
+                                            quota = updatedQuota
+                                            store.saveInboxCache(CachedInbox(ownerKey, System.currentTimeMillis(), rows, nextCursor, updatedQuota))
                                             showOperationMessage("Item deleted.")
                                         }.onFailure { e ->
                                             showOperationMessage((e as? Exception)?.safeInboxMessage() ?: "Could not delete item.", isError = true)
@@ -526,6 +570,7 @@ internal fun InboxTab(
 @Composable
 private fun InboxRow(
     item: InboxSummary,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -564,6 +609,7 @@ private fun InboxRow(
 
     SwipeToDismissBox(
         state = dismissState,
+        modifier = modifier,
         enableDismissFromStartToEnd = false,
         enableDismissFromEndToStart = true,
         backgroundContent = {

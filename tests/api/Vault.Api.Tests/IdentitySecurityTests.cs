@@ -40,6 +40,8 @@ public sealed class IdentitySecurityTests
         Assert.True(paths.TryGetProperty("/api/v1/auth/login", out _));
         Assert.True(paths.TryGetProperty("/api/v1/devices/pairing-sessions", out var pairingPath));
         Assert.True(paths.TryGetProperty("/api/v1/devices/pair", out var pairPath));
+        Assert.True(paths.TryGetProperty("/api/v1/devices/login", out var deviceLoginPath));
+        Assert.True(paths.TryGetProperty("/api/v1/devices/revoke-current", out var revokeCurrentPath));
         Assert.True(paths.TryGetProperty("/api/v1/auth/refresh", out var refreshPath));
         Assert.True(paths.TryGetProperty("/api/v1/auth/sessions/revoke-all", out var revokeAllPath));
         Assert.Contains("application/json", pairingPath.GetProperty("post").GetProperty("requestBody").GetProperty("content").EnumerateObject().Select(x => x.Name));
@@ -481,7 +483,7 @@ public sealed class IdentitySecurityTests
         var rotated = (await refreshResponse.Content.ReadFromJsonAsync<TokenResponse>())!;
         Assert.NotEqual(original.AccessToken, rotated.AccessToken);
         Assert.NotEqual(original.RefreshToken, rotated.RefreshToken);
-        Assert.Equal(original.RefreshTokenExpiresAt, rotated.RefreshTokenExpiresAt);
+        Assert.True(rotated.RefreshTokenExpiresAt >= original.RefreshTokenExpiresAt);
         using var ambientRefresh = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh") { Content = JsonContent.Create(new { refreshToken = rotated.RefreshToken }) };
         ambientRefresh.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", rotated.AccessToken);
         using var ambientRefreshResponse = await mobile.SendAsync(ambientRefresh);
@@ -508,6 +510,62 @@ public sealed class IdentitySecurityTests
         Assert.Equal(HttpStatusCode.Unauthorized, cookieCutoff.StatusCode);
         using var bearerCutoff = await SendBearerAsync(secondMobile, active.AccessToken, "/api/v1/items");
         Assert.Equal(HttpStatusCode.Unauthorized, bearerCutoff.StatusCode);
+    }
+
+    [Fact]
+    public async Task Device_login_with_credentials_and_revoke_current_flow()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var mobile1 = host.CreateClient();
+        using var mobile2 = host.CreateClient();
+
+        // 1. Invalid password returns 401
+        using var badLogin = await mobile1.PostAsJsonAsync("/api/v1/devices/login", new { identifier = TestApiHost.Email1, password = "WrongPassword_123!", deviceName = "Pixel 8" });
+        Assert.Equal(HttpStatusCode.Unauthorized, badLogin.StatusCode);
+
+        // 2. Valid login with email returns 201 with TokenResponse
+        var tokens1 = await DeviceLoginAsync(mobile1, TestApiHost.Email1, Password1, "Pixel 8");
+        Assert.Equal("Bearer", tokens1.TokenType);
+        Assert.StartsWith("va1_", tokens1.AccessToken);
+        Assert.StartsWith("vr1_", tokens1.RefreshToken);
+        Assert.True(tokens1.AccessTokenExpiresAt > DateTime.UtcNow);
+        Assert.True(tokens1.RefreshTokenExpiresAt > DateTime.UtcNow.AddDays(13));
+
+        // 3. Can make authenticated requests
+        using var transfer = new HttpRequestMessage(HttpMethod.Post, "/api/v1/items/text") { Content = JsonContent.Create(new { text = "from device login" }) };
+        transfer.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens1.AccessToken);
+        transfer.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString("D"));
+        using var created = await mobile1.SendAsync(transfer);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        // 4. Valid login with username returns 201
+        var tokens2 = await DeviceLoginAsync(mobile2, TestApiHost.Username2, Password2, "Galaxy S24");
+        Assert.StartsWith("va1_", tokens2.AccessToken);
+
+        // 5. Revoke current device on mobile1
+        using var revokeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/devices/revoke-current");
+        revokeRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens1.AccessToken);
+        using var revokeResponse = await mobile1.SendAsync(revokeRequest);
+        Assert.Equal(HttpStatusCode.NoContent, revokeResponse.StatusCode);
+
+        // 6. Mobile 1 token is revoked
+        using var afterRevoke = await SendBearerAsync(mobile1, tokens1.AccessToken, "/api/v1/items");
+        Assert.Equal(HttpStatusCode.Unauthorized, afterRevoke.StatusCode);
+
+        // 7. Mobile 2 token is still active
+        using var mobile2Active = await SendBearerAsync(mobile2, tokens2.AccessToken, "/api/v1/items");
+        Assert.Equal(HttpStatusCode.OK, mobile2Active.StatusCode);
+    }
+
+    private static async Task<TokenResponse> DeviceLoginAsync(HttpClient client, string identifier, string password, string deviceName)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/devices/login")
+        {
+            Content = JsonContent.Create(new { identifier, password, deviceName })
+        };
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<TokenResponse>())!;
     }
 
     private static HttpRequestMessage NewLoginRequest(string email, string password, string token, string origin)

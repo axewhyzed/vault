@@ -25,7 +25,7 @@ internal static class OpenApiContract
             Type = SecuritySchemeType.Http,
             Scheme = "bearer",
             BearerFormat = "va1_…",
-            Description = "Five minute Android access token. Each request checks the token hash and session state in the database."
+            Description = "Fifteen minute Android access token. Each request checks the token hash and session state in the database."
         };
 
         var cookieScheme = new OpenApiSecuritySchemeReference("VaultCookie", document);
@@ -41,7 +41,7 @@ internal static class OpenApiContract
                 operation.Security.Add(new OpenApiSecurityRequirement { [bearerScheme] = [] });
             }
             if (path is "/api/v1/auth/logout") operation.Security = [new OpenApiSecurityRequirement { [cookieScheme] = [] }];
-            if (path is "/api/v1/auth/sessions/revoke-all")
+            if (path is "/api/v1/auth/sessions/revoke-all" or "/api/v1/devices/revoke-current")
             {
                 operation.Security = [new OpenApiSecurityRequirement { [cookieScheme] = [] }, new OpenApiSecurityRequirement { [bearerScheme] = [] }];
                 operation.Description = $"{operation.Description} Browser-cookie requests require an allowed Origin header and the antiforgery cookie plus X-CSRF-TOKEN header. Bearer requests do not use ambient browser credentials.";
@@ -59,7 +59,7 @@ internal static class OpenApiContract
                 operation.Parameters.Add(new OpenApiParameter { Name = "Idempotency-Key", In = ParameterLocation.Header, Required = true,
                     Description = "UUID identifying this pairing attempt.", Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "uuid" } });
             }
-            if (isUnsafeOperation && (path is "/api/v1/auth/sessions/revoke-all" or "/api/v1/devices/pairing-sessions" or "/api/v1/auth/logout" || path.StartsWith("/api/v1/items", StringComparison.Ordinal) || path.StartsWith("/api/v1/uploads", StringComparison.Ordinal)))
+            if (isUnsafeOperation && (path is "/api/v1/auth/sessions/revoke-all" or "/api/v1/devices/revoke-current" or "/api/v1/devices/pairing-sessions" or "/api/v1/auth/logout" || path.StartsWith("/api/v1/items", StringComparison.Ordinal) || path.StartsWith("/api/v1/uploads", StringComparison.Ordinal)))
             {
                 operation.Parameters ??= [];
                 operation.Parameters.Add(new OpenApiParameter { Name = "Origin", In = ParameterLocation.Header, Required = path is "/api/v1/devices/pairing-sessions" or "/api/v1/auth/logout",
