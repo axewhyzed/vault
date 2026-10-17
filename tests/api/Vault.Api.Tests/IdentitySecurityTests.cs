@@ -38,6 +38,7 @@ public sealed class IdentitySecurityTests
         Assert.Equal("3.1.1", document.RootElement.GetProperty("openapi").GetString());
         var paths = document.RootElement.GetProperty("paths");
         Assert.True(paths.TryGetProperty("/api/v1/auth/login", out _));
+        Assert.True(paths.TryGetProperty("/api/v1/devices", out var devicesPath));
         Assert.True(paths.TryGetProperty("/api/v1/devices/pairing-sessions", out var pairingPath));
         Assert.True(paths.TryGetProperty("/api/v1/devices/pair", out var pairPath));
         Assert.True(paths.TryGetProperty("/api/v1/devices/login", out var deviceLoginPath));
@@ -569,6 +570,26 @@ public sealed class IdentitySecurityTests
         // 7. Mobile 2 token is still active
         using var mobile2Active = await SendBearerAsync(mobile2, tokens2.AccessToken, "/api/v1/items");
         Assert.Equal(HttpStatusCode.OK, mobile2Active.StatusCode);
+    }
+
+    [Fact]
+    public async Task Get_active_devices_returns_connected_web_and_android_devices()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var web = host.CreateClient();
+
+        var csrf = await GetCsrfAsync(web);
+        await LoginAsync(host, web, TestApiHost.Email1, Password1, csrf.Token);
+
+        // Fetch devices as authenticated web user
+        using var devicesResponse = await web.GetAsync("/api/v1/devices");
+        Assert.Equal(HttpStatusCode.OK, devicesResponse.StatusCode);
+        using var doc = JsonDocument.Parse(await devicesResponse.Content.ReadAsStringAsync());
+        var devices = doc.RootElement.GetProperty("devices").EnumerateArray().ToList();
+        Assert.Single(devices);
+        Assert.Equal("Web browser", devices[0].GetProperty("name").GetString());
+        Assert.Equal("web", devices[0].GetProperty("platform").GetString());
+        Assert.True(devices[0].GetProperty("isCurrent").GetBoolean());
     }
 
     private static async Task<TokenResponse> DeviceLoginAsync(HttpClient client, string identifier, string password, string deviceName)

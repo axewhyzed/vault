@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="100%" height="100%">
+  <defs>
+    <linearGradient id="obsidianBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#111827" />
+      <stop offset="100%" stop-color="#070A10" />
+    </linearGradient>
+    <linearGradient id="shieldLeft" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+    <linearGradient id="shieldRight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34D399" />
+      <stop offset="100%" stop-color="#10B981" />
+    </linearGradient>
+  </defs>
+
+  <!-- Obsidian Rounded Squircle Container -->
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#obsidianBg)" stroke="#1F2937" stroke-width="1.5" />
+
+  <!-- Shield Left Facet -->
+  <path d="M64 24 L34 36 C34 74 64 98 64 104 L64 24 Z" fill="url(#shieldLeft)" />
+
+  <!-- Shield Right Facet -->
+  <path d="M64 24 L94 36 C94 74 64 98 64 104 L64 24 Z" fill="url(#shieldRight)" />
+</svg>

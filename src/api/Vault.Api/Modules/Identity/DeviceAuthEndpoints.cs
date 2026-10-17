@@ -26,6 +26,9 @@ internal static class DeviceAuthEndpoints
         devices.MapPost("/login", DeviceLoginAsync).AllowAnonymous()
             .WithName("DeviceLogin").WithSummary("Sign in an Android device using username/email and password.")
             .Accepts<DeviceLoginRequest>("application/json").Produces<TokenResponse>(201).Produces(400).Produces(401).Produces(415).Produces(429);
+        devices.MapGet("/", GetActiveDevicesAsync).RequireAuthorization()
+            .WithName("GetActiveDevices").WithSummary("List all active connected devices for the authenticated user.")
+            .Produces<DeviceListResponse>(200).Produces(401);
         devices.MapPost("/revoke-current", RevokeCurrentDeviceAsync).RequireAuthorization()
             .WithName("RevokeCurrentDevice").WithSummary("Revoke the calling device session.")
             .Produces(204).Produces(401).Produces(403);
@@ -361,6 +364,30 @@ internal static class DeviceAuthEndpoints
     private static VaultAuditEvent Audit(string type, Guid? userId, Guid? deviceId, HttpContext context) => new() { EventType = type, ActorUserId = userId, ActorDeviceId = deviceId, CorrelationId = context.TraceIdentifier };
     private static IResult Error(HttpContext context, int status, string code, string message) => IdentityErrors.Create(context, status, code, message);
 
+    private static async Task<IResult> GetActiveDevicesAsync(HttpContext context, VaultDbContext db, CancellationToken ct)
+    {
+        var userId = IdentityEndpoints.GetGuid(context.User, "userId");
+        var currentDeviceId = IdentityEndpoints.GetGuid(context.User, "deviceId");
+        if (userId == Guid.Empty)
+            return Error(context, 401, "unauthorized", "Authentication is required.");
+
+        var devices = await db.Devices.AsNoTracking()
+            .Where(d => d.UserId == userId && d.RevokedAt == null)
+            .OrderByDescending(d => d.CreatedAt)
+            .Select(d => new DeviceSummary(
+                d.Id,
+                d.Name,
+                d.Platform,
+                d.CreatedAt,
+                d.Id == currentDeviceId
+            ))
+            .ToListAsync(ct);
+
+        return Results.Ok(new DeviceListResponse(devices));
+    }
+
+    internal sealed record DeviceSummary(Guid Id, string Name, string Platform, DateTime CreatedAt, bool IsCurrent);
+    internal sealed record DeviceListResponse(IReadOnlyList<DeviceSummary> Devices);
     internal sealed record DeviceLoginRequest(string Identifier, string Password, string DeviceName, string? Platform = "android");
     internal sealed record PairRequest(Guid PairingSessionId, string PairingSecret, string DeviceName);
     internal sealed record RefreshRequest(string RefreshToken);

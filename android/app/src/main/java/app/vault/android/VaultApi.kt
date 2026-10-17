@@ -265,6 +265,36 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
         }
     }
 
+    suspend fun getActiveDevices(): Result<List<DeviceItem>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val response = executeAuthedRequest { base, token ->
+                val url = base.newBuilder().addPathSegments("api/v1/devices").build()
+                Request.Builder()
+                    .url(url)
+                    .header("Accept", "application/json")
+                    .header("Cache-Control", "no-store")
+                    .header("Authorization", "Bearer $token")
+                    .get()
+                    .build()
+            }
+            response.use { res ->
+                if (!res.isSuccessful) throw failure(res.code, res.body?.string().orEmpty())
+                val json = JSONObject(res.body?.string().orEmpty())
+                val devicesArr = json.getJSONArray("devices")
+                (0 until devicesArr.length()).map { i ->
+                    val obj = devicesArr.getJSONObject(i)
+                    DeviceItem(
+                        id = obj.getString("id"),
+                        name = obj.getString("name"),
+                        platform = obj.getString("platform"),
+                        isCurrent = obj.optBoolean("isCurrent", false),
+                        createdAt = obj.getString("createdAt"),
+                    )
+                }
+            }
+        }
+    }
+
     fun downloadToTemp(detail: InboxDetail, onProgress: (Long) -> Unit = {}): File {
         val itemId = canonicalUuid(detail.id) ?: throw ApiFailure(400, "invalid_item_id", "This inbox item could not be downloaded.")
         if (detail.type != "file" || detail.downloadUrl != "/api/v1/items/$itemId/download" || detail.sizeBytes !in 0..MAX_INBOX_FILE_BYTES ||

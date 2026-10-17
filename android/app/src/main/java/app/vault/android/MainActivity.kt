@@ -65,6 +65,8 @@ class MainActivity : ComponentActivity() {
     private var signOutConfirmation by mutableStateOf(false)
     private var signOutInProgress by mutableStateOf(false)
     private var statusTone by mutableStateOf(NoticeTone.INFO)
+    private var hubPingLatencyMs by mutableStateOf<Long?>(null)
+    private var hubHasPinged by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(R.style.Theme_Vault)
@@ -634,12 +636,24 @@ class MainActivity : ComponentActivity() {
                                 vaultApi(this@MainActivity), store,
                                 "${credentials.origin}|${credentials.userId}|${credentials.deviceId}",
                                 foregroundToken, Modifier.fillMaxSize(),
+                                onCacheRefreshed = {
+                                    scope.launch {
+                                        val latency = withContext(Dispatchers.IO) { vaultApi(this@MainActivity).ping() }
+                                        hubPingLatencyMs = latency
+                                    }
+                                },
                             )
                             else -> HubScreen(
                                 api = vaultApi(this@MainActivity),
                                 store = store,
                                 credentials = credentials,
                                 deviceName = deviceName,
+                                pingLatencyMs = hubPingLatencyMs,
+                                hasPinged = hubHasPinged,
+                                onPingUpdate = { latency ->
+                                    hubPingLatencyMs = latency
+                                    hubHasPinged = true
+                                },
                                 onSignOutCurrentDevice = {
                                     scope.launch {
                                         showStatus("Signing out of this phone…")
@@ -647,6 +661,8 @@ class MainActivity : ComponentActivity() {
                                             withContext(Dispatchers.IO) { vaultApi(this@MainActivity).revokeCurrentDevice() }
                                             reviewDraftId = null
                                             selectedDestination = VaultDestination.SEND
+                                            hubPingLatencyMs = null
+                                            hubHasPinged = false
                                             showStatus("Signed out of this phone.", NoticeTone.INFO)
                                         } catch (e: Exception) {
                                             showStatus(e.message ?: "Sign out failed.", NoticeTone.ERROR)

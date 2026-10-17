@@ -34,7 +34,7 @@ internal static class OpenApiContract
         foreach (var (method, operation) in pathItem.Operations!)
         {
             var isUnsafeOperation = method.ToString() is "POST" or "PUT" or "PATCH" or "DELETE";
-            if (path is "/api/v1/auth/me" || path.StartsWith("/api/v1/items", StringComparison.Ordinal) || path.StartsWith("/api/v1/uploads", StringComparison.Ordinal))
+            if (path is "/api/v1/auth/me" || path is "/api/v1/devices" || path.StartsWith("/api/v1/items", StringComparison.Ordinal) || path.StartsWith("/api/v1/uploads", StringComparison.Ordinal))
             {
                 operation.Security ??= [];
                 operation.Security.Add(new OpenApiSecurityRequirement { [cookieScheme] = [] });

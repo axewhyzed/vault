@@ -3,6 +3,7 @@ import type { FormEvent, MouseEvent } from 'react';
 import ComposeHub from './ComposeHub';
 import PairDeviceModal from './PairDeviceModal';
 import SecurityModal from './SecurityModal';
+import ConnectedDevicesModal from './components/ConnectedDevicesModal';
 import Topbar from './components/Topbar';
 import AuthLayout from './components/AuthLayout';
 import InboxList from './components/InboxList';
@@ -46,6 +47,7 @@ export default function App() {
   // Topbar & Modals state
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [pairModalOpen, setPairModalOpen] = useState(false);
+  const [devicesModalOpen, setDevicesModalOpen] = useState(false);
   const [securityModalOpen, setSecurityModalOpen] = useState(false);
   const [securityModalBusy, setSecurityModalBusy] = useState(false);
   const [securityModalError, setSecurityModalError] = useState('');
@@ -752,6 +754,7 @@ export default function App() {
         setUserMenuOpen={setUserMenuOpen}
         userMenuRef={userMenuRef}
         busy={busy}
+        onOpenDevicesModal={() => setDevicesModalOpen(true)}
         onOpenPairModal={() => setPairModalOpen(true)}
         onOpenSecurityModal={() => setSecurityModalOpen(true)}
         onLogout={() => void handleLogout()}
@@ -855,6 +858,20 @@ export default function App() {
       </footer>
 
       {/* Modals */}
+      <ConnectedDevicesModal
+        isOpen={devicesModalOpen}
+        onClose={() => setDevicesModalOpen(false)}
+        onOpenPairModal={() => {
+          setDevicesModalOpen(false);
+          setPairModalOpen(true);
+        }}
+        onOpenSecurityModal={() => {
+          setDevicesModalOpen(false);
+          setSecurityModalOpen(true);
+        }}
+        onUnauthorized={signOutOnUnauthorized}
+      />
+
       <PairDeviceModal
         isOpen={pairModalOpen}
         onClose={() => setPairModalOpen(false)}

@@ -2,6 +2,14 @@ package app.vault.android
 
 data class InboxSourceDevice(val id: String, val name: String, val platform: String)
 
+data class DeviceItem(
+    val id: String,
+    val name: String,
+    val platform: String,
+    val isCurrent: Boolean,
+    val createdAt: String,
+)
+
 data class InboxQuota(val activeBytes: Long, val maxActiveBytes: Long, val activeItems: Long, val maxActiveItems: Int)
 
 data class InboxPage(

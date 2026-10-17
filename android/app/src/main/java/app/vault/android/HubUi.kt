@@ -44,6 +44,9 @@ internal fun HubScreen(
     store: EncryptedStore,
     credentials: Credentials,
     deviceName: String,
+    pingLatencyMs: Long?,
+    hasPinged: Boolean,
+    onPingUpdate: (Long?) -> Unit,
     onSignOutCurrentDevice: () -> Unit,
     onSignOutEverywhere: () -> Unit,
     onShowMessage: (String) -> Unit,
@@ -51,10 +54,11 @@ internal fun HubScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var pingLatencyMs by remember { mutableStateOf<Long?>(null) }
     var pinging by remember { mutableStateOf(false) }
     var spoolBytes by remember { mutableLongStateOf(store.spoolSize()) }
     var defaultDownloadUri by remember { mutableStateOf(store.defaultDownloadUri()) }
+    var devicesList by remember { mutableStateOf<List<DeviceItem>?>(null) }
+    var devicesLoading by remember { mutableStateOf(false) }
 
     val chooseFolderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -80,15 +84,31 @@ internal fun HubScreen(
         scope.launch {
             try {
                 val latency = withContext(Dispatchers.IO) { api.ping() }
-                pingLatencyMs = latency
+                onPingUpdate(latency)
             } finally {
                 pinging = false
             }
         }
     }
 
+    fun loadDevices() {
+        if (devicesLoading) return
+        devicesLoading = true
+        scope.launch {
+            try {
+                val res = api.getActiveDevices()
+                res.onSuccess { devicesList = it }
+            } finally {
+                devicesLoading = false
+            }
+        }
+    }
+
     LaunchedEffect(credentials.origin) {
-        checkPing()
+        if (!hasPinged) {
+            checkPing()
+        }
+        loadDevices()
     }
 
     Column(
@@ -132,7 +152,13 @@ internal fun HubScreen(
                         )
                     }
 
-                    IconButton(onClick = ::checkPing, enabled = !pinging) {
+                    IconButton(
+                        onClick = {
+                            checkPing()
+                            loadDevices()
+                        },
+                        enabled = !pinging,
+                    ) {
                         Icon(
                             imageVector = Icons.Filled.Refresh,
                             contentDescription = "Test connection ping",
@@ -174,83 +200,112 @@ internal fun HubScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    text = "Connected Devices",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                )
-
-                // Current Phone
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.PhoneAndroid,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = deviceName,
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                        )
-                        Text(
-                            text = "This phone · Native client",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    SuggestionChip(
-                        onClick = {},
-                        label = { Text("Active", style = MaterialTheme.typography.labelSmall) },
+                    Text(
+                        text = "Connected Devices",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     )
+                    if (devicesLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
                 }
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-
-                // Paired PC / Web
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.secondaryContainer),
-                        contentAlignment = Alignment.Center,
+                val activeDevices = devicesList
+                if (activeDevices != null && activeDevices.isNotEmpty()) {
+                    activeDevices.forEachIndexed { index, dev ->
+                        if (index > 0) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                        }
+                        val isPhone = dev.platform.equals("android", ignoreCase = true)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (isPhone) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.secondaryContainer
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = if (isPhone) Icons.Filled.PhoneAndroid else Icons.Filled.Computer,
+                                    contentDescription = null,
+                                    tint = if (isPhone) MaterialTheme.colorScheme.onPrimaryContainer
+                                    else MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = dev.name,
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                                )
+                                Text(
+                                    text = if (dev.isCurrent || dev.id == credentials.deviceId) "This phone · Native client"
+                                           else if (isPhone) "Android Native Client"
+                                           else "Web Desktop Workspace",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            SuggestionChip(
+                                onClick = {},
+                                label = {
+                                    Text(
+                                        if (dev.isCurrent || dev.id == credentials.deviceId) "This device" else "Active",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                } else {
+                    // Fallback to local device info
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Computer,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PhoneAndroid,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = deviceName,
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                            )
+                            Text(
+                                text = "This phone · Native client",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        SuggestionChip(
+                            onClick = {},
+                            label = { Text("Active", style = MaterialTheme.typography.labelSmall) },
                         )
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Paired PC / Web Browser",
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                        )
-                        Text(
-                            text = "Linked desktop workspace",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    SuggestionChip(
-                        onClick = {},
-                        label = { Text("Paired", style = MaterialTheme.typography.labelSmall) },
-                    )
                 }
             }
         }

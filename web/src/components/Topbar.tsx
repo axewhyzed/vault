@@ -3,6 +3,7 @@ import type { Session, Quota, ViewState } from '../types';
 import { formatBytes } from '../utils';
 import {
   ChevronDownIcon,
+  DevicesIcon,
   MoonIcon,
   QrCodeIcon,
   ShieldLockIcon,
@@ -12,9 +13,9 @@ import {
 export function VaultMark() {
   return (
     <svg aria-hidden="true" viewBox="0 0 32 32" className="vault-mark">
-      <rect x="2" y="2" width="28" height="28" rx="9" fill="currentColor" />
-      <path d="M9 11.25h2.55l4.45 10.1 4.45-10.1H23l-6.05 13.5h-1.9L9 11.25Z" fill="var(--paper, #f5f4ef)" />
-      <circle cx="23.1" cy="8.9" r="1.35" fill="#10B981" />
+      <rect x="2" y="2" width="28" height="28" rx="8" fill="#0B0F17" stroke="#1E293B" strokeWidth="1" />
+      <path d="M16 6 L8.5 9.5 C8.5 19.5 16 25.5 16 27 L16 6 Z" fill="#059669" />
+      <path d="M16 6 L23.5 9.5 C23.5 19.5 16 25.5 16 27 L16 6 Z" fill="#10B981" />
     </svg>
   );
 }
@@ -30,6 +31,7 @@ type TopbarProps = {
   setUserMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
   userMenuRef: RefObject<HTMLDivElement | null>;
   busy: boolean;
+  onOpenDevicesModal: () => void;
   onOpenPairModal: () => void;
   onOpenSecurityModal: () => void;
   onLogout: () => void;
@@ -46,6 +48,7 @@ export default function Topbar({
   setUserMenuOpen,
   userMenuRef,
   busy,
+  onOpenDevicesModal,
   onOpenPairModal,
   onOpenSecurityModal,
   onLogout,
@@ -103,15 +106,28 @@ export default function Topbar({
       {/* Right: Actions, Theme Toggle, User Menu */}
       <div className="topbar-right">
         {view === 'signed-in' && (
-          <button
-            type="button"
-            className="topbar-action-btn"
-            onClick={onOpenPairModal}
-            aria-label="Pair Android Phone"
-          >
-            <QrCodeIcon size={15} />
-            <span className="hide-mobile">Pair Phone</span>
-          </button>
+          <>
+            <button
+              type="button"
+              className="topbar-action-btn"
+              onClick={onOpenDevicesModal}
+              aria-label="Connected Devices"
+              title="View Connected Devices"
+            >
+              <DevicesIcon size={15} />
+              <span className="hide-mobile">Devices</span>
+            </button>
+
+            <button
+              type="button"
+              className="topbar-action-btn"
+              onClick={onOpenPairModal}
+              aria-label="Pair Android Phone"
+            >
+              <QrCodeIcon size={15} />
+              <span className="hide-mobile">Pair Phone</span>
+            </button>
+          </>
         )}
 
         <button
@@ -151,6 +167,21 @@ export default function Topbar({
                     Web Client · Current session
                   </span>
                 </div>
+
+                <div className="dropdown-divider" role="separator" />
+
+                <button
+                  type="button"
+                  className="dropdown-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    onOpenDevicesModal();
+                  }}
+                >
+                  <DevicesIcon size={14} />
+                  <span>Connected devices…</span>
+                </button>
 
                 <div className="dropdown-divider" role="separator" />
 
