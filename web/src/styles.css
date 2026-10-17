@@ -427,7 +427,7 @@ button:disabled { cursor: not-allowed; }
   padding: 8px 10px 6px;
 }
 
-.account-email {
+.account-username {
   display: block;
   font-size: 13px;
   font-weight: 650;
@@ -435,6 +435,17 @@ button:disabled { cursor: not-allowed; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.account-email {
+  display: block;
+  font-size: 11px;
+  font-weight: 450;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
 }
 
 .account-tag {
