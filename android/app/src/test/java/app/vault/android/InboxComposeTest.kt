@@ -176,4 +176,41 @@ class InboxComposeTest {
         compose.onNodeWithText("Sign out everywhere").performClick()
         assertEquals(1, confirmed)
     }
+
+    @Test fun inboxRendersStorageQuotaCard() {
+        val server = MockWebServer(); server.start()
+        try {
+            server.enqueue(listResponse())
+            val store = store(server)
+            compose.setContent { MaterialTheme { InboxTab(VaultApi(store), store, "${server.url("/").toString().trimEnd('/')}|owner|device", 0) } }
+
+            compose.waitUntil(5_000) { server.requestCount == 1 }
+            compose.onNodeWithText("Vault storage").assertExists()
+            compose.onNodeWithText("10 B of 100 B").assertExists()
+            compose.onNodeWithText("1 of 10 items").assertExists()
+        } finally { server.shutdown() }
+    }
+
+    @Test fun deleteItemFromDetailWithConfirmation() {
+        val server = MockWebServer(); server.start()
+        try {
+            server.enqueue(listResponse())
+            server.enqueue(MockResponse().setBody("""{"id":"$id","type":"text","state":"available","displayName":"Note","sizeBytes":10,"createdAt":"2026-10-16T10:00:00Z","availableAt":"2026-10-16T10:00:00Z","expiresAt":"2099-10-23T10:00:00Z","version":1,"sourceDevice":{"id":"device","name":"Phone","platform":"android"},"text":"exact value","contentType":"text/plain","downloadUrl":null,"sha256":null}"""))
+            server.enqueue(MockResponse().setResponseCode(204))
+            val store = store(server)
+            compose.setContent { MaterialTheme { InboxTab(VaultApi(store), store, "${server.url("/").toString().trimEnd('/')}|owner|device", 0) } }
+
+            compose.waitUntil(5_000) { server.requestCount == 1 }
+            compose.onNodeWithText("Note").performClick()
+            compose.waitUntil(5_000) { server.requestCount == 2 }
+            compose.onNodeWithText("Delete item").performClick()
+            compose.onNodeWithText("Delete this item from Vault? This cannot be undone.").assertExists()
+            compose.onNodeWithText("Delete").performClick()
+            compose.waitUntil(5_000) { server.requestCount == 3 }
+            val deleteRequest = (1..3).map { server.takeRequest() }[2]
+            assertEquals("DELETE", deleteRequest.method)
+            assertEquals("/api/v1/items/$id", deleteRequest.path)
+            compose.onNodeWithText("Item deleted.").assertExists()
+        } finally { server.shutdown() }
+    }
 }

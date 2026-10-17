@@ -18,6 +18,8 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class ApiFailure(val status: Int, val code: String, message: String) : Exception(message)
 
@@ -165,6 +167,43 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
                 val sha256 = if (json.isNull("sha256")) null else json.getString("sha256")
                 summary.asDetail(text, json.getString("contentType"), downloadUrl, sha256)
             } catch (_: Exception) { throw malformedInbox() }
+        }
+    }
+
+    internal fun executeAuthedRequest(buildRequest: (HttpUrl, String) -> Request): okhttp3.Response {
+        val credentials = store.credentials() ?: throw ApiFailure(401, "sign_in_required", "Pair this device again.")
+        val base = apiBase(credentials.origin) ?: throw ApiFailure(401, "invalid_origin", "This device needs to be paired again.")
+        val current = CredentialRefreshCoordinator.current(store, credentials.origin, credentials.userId, ::refresh)
+        val response = client.newCall(buildRequest(base, current.accessToken)).execute()
+        return if (response.code == 401) {
+            response.close()
+            val rotated = CredentialRefreshCoordinator.afterUnauthorized(store, credentials.origin, credentials.userId, current.accessToken, ::refresh)
+            client.newCall(buildRequest(base, rotated.accessToken)).execute()
+        } else {
+            response
+        }
+    }
+
+    suspend fun deleteItem(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val itemId = canonicalUuid(id) ?: throw ApiFailure(400, "invalid_item_id", "This inbox item could not be deleted.")
+            val response = executeAuthedRequest { base, token ->
+                val url = base.newBuilder().addPathSegments("api/v1/items").addPathSegment(itemId).build()
+                Request.Builder()
+                    .url(url)
+                    .header("Accept", "application/json")
+                    .header("Cache-Control", "no-store")
+                    .header("Authorization", "Bearer $token")
+                    .delete()
+                    .build()
+            }
+            response.use { res ->
+                if (res.code == 200 || res.code == 204) {
+                    Unit
+                } else {
+                    throw inboxFailure(res.code)
+                }
+            }
         }
     }
 
