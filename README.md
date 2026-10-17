@@ -4,12 +4,10 @@
 
 <svg aria-hidden="true" viewBox="0 0 32 32" width="72" height="72"><rect x="2" y="2" width="28" height="28" rx="9" fill="#2b3b2d" /><path d="M9 11.25h2.55l4.45 10.1 4.45-10.1H23l-6.05 13.5h-1.9L9 11.25Z" fill="#f5f4ef" /><circle cx="23.1" cy="8.9" r="1.35" fill="#34a853" /></svg>
 
-### *A quieter way to move things.*
-
-**Encrypted, zero-cloud personal relay & high-density inbox between your desktop browser and Android phone.**
+### *A private, self-hosted clipboard and file drop between your PC and Android phone.*
 
 [![Release](https://img.shields.io/github/v/release/axewhyzed/vault?color=2b3b2d&label=Release&logo=github)](https://github.com/axewhyzed/vault/releases)
-[![Download APK](https://img.shields.io/badge/Download-Android%20APK-34a853?logo=android&logoColor=white)](https://github.com/axewhyzed/vault/releases)
+[![Download APK](https://img.shields.io/badge/Download-Android%20APK%20(v0.3.0)-34a853?logo=android&logoColor=white)](https://github.com/axewhyzed/vault/releases)
 [![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-3DDC84?logo=android&logoColor=white)](android/)
 [![Backend](https://img.shields.io/badge/.NET-10.0%20Minimal%20API-512BD4?logo=dotnet&logoColor=white)](src/api/Vault.Api)
 [![Frontend](https://img.shields.io/badge/React-19%20%2B%20TypeScript-61DAFB?logo=react&logoColor=black)](web/)
@@ -20,20 +18,24 @@
 
 </div>
 
-## Overview
+## Why Vault?
 
-**Vault** is a single-owner, self-hosted personal relay engineered to bridge your desktop browser and mobile devices without commercial sync clouds, third-party telemetry, or message clutter.
+Ever find yourself emailing a link to yourself, messaging a bot on Telegram or WhatsApp just to copy some text to your phone, or waiting for cloud drive sync just to move a single PDF?
 
-Effortlessly transfer text snippets, URLs, and files up to 100 MB directly into your personal workspace. Vault features a zero-waste web dashboard with an instant Compose Hub and client-side search, paired with a native Kotlin Jetpack Compose Android client featuring offline-resilient encrypted caching, swipe gestures, and real-time connectivity telemetry.
+**Vault replaces those workarounds.** It gives you a private, self-hosted inbox that connects your desktop browser and your Android phone directly:
+
+1. **Paste or drop on your PC** — links, text notes, code snippets, or files up to 100 MB.
+2. **It arrives on your phone immediately** — with smart one-tap actions to open, copy, or download.
+3. **No third-party cloud required** — your data runs on your own hardware, with zero tracking, no ads, and no subscription fees.
 
 ---
 
-## Visual Showcase
+## Visual Tour
 
 <div align="center">
 
-### Modernized Web Workspace
-*High-density 2-pane workspace featuring an instant Compose Hub, live storage meter, type filtering, instant search (`/`), and Obsidian Dark / Crisp Light theming.*
+### Desktop Web Workspace
+*Clean two-pane inbox with instant compose, live storage meter, type filters, and real-time search (`/`).*
 
 <img src="docs/assets/web-inbox.png" alt="Vault Web Workspace" width="100%" />
 
@@ -43,25 +45,25 @@ Effortlessly transfer text snippets, URLs, and files up to 100 MB directly into 
 
 <table align="center" width="100%">
 <tr>
-<th width="33%" align="center">📱 Native Android Inbox</th>
-<th width="33%" align="center">⚡ Hub & Telemetry</th>
-<th width="34%" align="center">🔐 Seamless Authentication</th>
+<th width="33%" align="center">📱 Android Inbox & Search</th>
+<th width="33%" align="center">⚙️ Settings & Device Hub</th>
+<th width="34%" align="center">🔐 Instant Sign-In & Pairing</th>
 </tr>
 <tr>
 <td align="center" valign="top">
 <img src="docs/assets/android-client.png" alt="Vault Android Inbox" width="260px" />
 <br/>
-<sub><i>Zero-skeleton SWR cache with storage quota progress, color-coded badges, and swipe-to-delete.</i></sub>
+<sub><i>Local encrypted cache for instant loading, real-time search bar, swipe-to-delete, and one-tap actions.</i></sub>
 </td>
 <td align="center" valign="top">
 <img src="docs/assets/android-paired.png" alt="Vault Hub" width="260px" />
 <br/>
-<sub><i>Live server ping latency, connected devices registry, local spool cache cleaner, and granular logout.</i></sub>
+<sub><i>Live server latency ping, connected devices list, default download folder picker, and cache cleaner.</i></sub>
 </td>
 <td align="center" valign="top">
 <img src="docs/assets/android-unpaired.png" alt="Vault Mobile Welcome" width="260px" />
 <br/>
-<sub><i>Camera QR scanning or direct username/password login with 14-day sliding session refresh.</i></sub>
+<sub><i>Pair in 1 second via QR code scan or log in directly with username and password.</i></sub>
 </td>
 </tr>
 </table>
@@ -71,49 +73,46 @@ Effortlessly transfer text snippets, URLs, and files up to 100 MB directly into 
 <table align="center" width="100%">
 <tr>
 <th width="50%" align="center">⚡ On-Demand Pairing Modal</th>
-<th width="50%" align="center">🛡️ Defensive Web Sign-In</th>
+<th width="50%" align="center">🛡️ Secure Web Login</th>
 </tr>
 <tr>
 <td align="center" valign="top">
 <img src="docs/assets/web-pairing.png" alt="Vault Web Pairing Modal" width="100%" />
 <br/>
-<sub><i>Vector QR generator with live 10-minute countdown timer, fallback secret copy box, and deep link launcher.</i></sub>
+<sub><i>One-click QR generator in the topbar with countdown timer and fallback pairing secret.</i></sub>
 </td>
 <td align="center" valign="top">
 <img src="docs/assets/web-auth.png" alt="Vault Web Auth Screen" width="100%" />
 <br/>
-<sub><i>Strict anti-forgery verification, rate limiting, and HttpOnly SameSite cookie isolation.</i></sub>
+<sub><i>HttpOnly SameSite cookie isolation, anti-CSRF verification, and rate limiting.</i></sub>
 </td>
 </tr>
 </table>
 
 ---
 
-## Key Highlights
+## What You Can Do
 
-- 🔒 **Zero-Cloud Privacy:** You own the infrastructure. Data moves strictly between your own server and authenticated devices—zero third-party tracking, ads, or message scraping.
-- ⚡ **Zero-Waste Web Architecture:** Completely eliminated giant hero banners. The 56px topbar integrates a live storage pill meter (`14 MB / 2 GB`), quick-action pairing modal, theme switcher, and an accessible user menu.
-- 🚀 **Unified Compose Hub:** Send snippets, links, or files from a single segmented tab container with drag-and-drop staging, live UTF-8 byte counting, and configurable retention (1, 3, or 7 days).
-- 📱 **Native Android Client (Material 3):**
-  - **Direct Authentication:** Scan a QR code or sign in directly with username and password with a collapsible server URL—zero URL typing for standard logins.
-  - **14-Day Sliding Sessions:** Sessions persist seamlessly with automatic token sliding window on active app usage (auto-logout after 14 days of inactivity).
-  - **Visible Outbox & Offline Spooling:** Items shared or composed while offline stay safely queued in local encrypted storage with live status indicators and automatically send as soon as internet connectivity returns.
-  - **Smart One-Tap Actions:** Open URLs directly in your browser or copy links with one tap; copy text snippets instantly; download files straight into your custom default download directory with a completion Toast; or open files directly via the native Android system resolver.
-  - **Search Received Files:** Instant client-side search bar on the Android inbox to search through received files, links, and snippets by name, type, or device.
-  - **Zero-Skeleton SWR Caching:** Local encrypted storage caches inbox rows for 10+ minutes, eliminating blank screen flashes on tab navigation.
-  - **Full Item Management:** Delete items directly from Android with confirmation dialogs or rapid swipe-to-dismiss.
-  - **Vault Hub:** Replaces redundant activity tabs with real-time server latency ping, connected device tracking, default download directory picker, local spool cleaner, and a confirmed Danger Zone.
-- 🔍 **Instant Search & Type Filtering:** Filter items instantly by type (`Files`, `Links`, `Text`) or execute real-time keyword search via `/` or `⌘K` on web and the search bar on Android.
-- 📦 **100 MB Direct Streaming:** Stream large attachments directly into isolated disk volumes with SHA-256 integrity verification—bypassing database bloat.
-- 🛡️ **Granular vs. Global Revocation:** Log out of your current device cleanly, or trigger a global session revocation from the confirmed security modal.
+- ⚡ **Send in Seconds:** Drop text notes, links, or files up to 100 MB from your desktop browser or phone.
+- 📴 **Offline Outbox (Android):** Share a file or type a note while your phone has no internet connection. Vault queues it locally and automatically sends it in the background as soon as connectivity returns.
+- 🎯 **Smart One-Tap Actions:**
+  - **Links / URLs:** Open directly in your browser or copy the link with one tap.
+  - **Text Snippets:** Copy directly to your clipboard.
+  - **Files:** Download directly to your chosen default folder (with progress indicator and a toast notification), or open immediately using native Android apps via the system resolver.
+- 🔍 **Live Search:** Search received items instantly by file name, text content, payload type, or sending device across both web and mobile.
+- 🧹 **Automatic Tidiness:** Set an expiration window (1, 3, or 7 days) so temporary drops clean themselves up automatically, keeping your storage lean.
+- 📁 **Custom Download Folder (Android):** Choose where files get saved on your phone (e.g. `Downloads/Vault`) using the standard Android folder picker. Once selected, downloads save there automatically without asking each time.
+- 🔒 **Granular Session Control:** Log out of your current device with one tap, or revoke all active sessions across all devices from the confirmed security modal.
 
 ---
 
-## Architecture
+## How It Works Under the Hood
+
+Vault is designed as a lightweight, single-tenant personal relay. It separates metadata storage from file storage to keep database operations fast and memory usage minimal:
 
 ```mermaid
 flowchart LR
-    subgraph Clients["Authorized Clients"]
+    subgraph Clients["Clients"]
         Android["Android Client (Kotlin / Compose)"]
         Browser["Desktop Browser (React 19 / TS)"]
     end
@@ -121,82 +120,94 @@ flowchart LR
     subgraph Host["Docker Host (:8080)"]
         Nginx["Nginx Reverse Proxy"]
 
-        subgraph Backend["Vault Core"]
+        subgraph Core["Vault Core Services"]
             API["ASP.NET Core 10 Minimal API"]
-            DB[("PostgreSQL 18")]
-            Storage[("File Data Volume")]
+            DB[("PostgreSQL 18 (Metadata & Sessions)")]
+            Storage[("Disk Volume (Streamed Files up to 100 MB)")]
         end
     end
 
-    Android -->|"TLS 1.3 / Bearer Tokens (va1_ / vr1_)"| Nginx
+    Android -->|"TLS 1.3 / Scoped Bearer Tokens (va1_ / vr1_)"| Nginx
     Browser -->|"HTTPS / SameSite HttpOnly Cookie + CSRF"| Nginx
     Nginx -->|"Proxy (/api/v1)"| API
     Nginx -->|"Static SPA (/)"| Browser
-    API -->|"EF Core / Compiled Queries"| DB
-    API -->|"Streamed Uploads (100 MB)"| Storage
+    API -->|"Compiled EF Core Queries"| DB
+    API -->|"Direct Stream (SHA-256 Verified)"| Storage
 ```
+
+### Technical Details
+
+- **Backend API (`src/api/Vault.Api`):** Built with ASP.NET Core 10 Minimal APIs and EF Core. File uploads are streamed directly from HTTP request bodies into a mounted disk volume—files never buffer in server RAM or bloat the database. Uploads calculate SHA-256 hashes on the fly to guarantee payload integrity.
+- **Desktop Web Client (`web/`):** React 19 + TypeScript single-page application served via Nginx. Session management uses `HttpOnly`, `SameSite=Lax`, encrypted cookies paired with anti-CSRF tokens to protect against cross-origin attacks. Keyboard shortcuts allow rapid navigation (`/` to search, `Escape` to close modals).
+- **Android Client (`android/`):** Native Kotlin application built with Jetpack Compose and Material 3.
+  - **Authentication:** Uses cryptographically scoped bearer tokens (`va1_` access tokens, `vr1_` refresh tokens) stored in Android `EncryptedSharedPreferences`. Sessions use a 14-day sliding expiration that refreshes automatically on active usage.
+  - **Background Work:** Uses Android `WorkManager` with network constraints to manage the Outbox queue, retrying uploads gracefully with exponential backoff if connectivity drops.
+  - **Storage & System Integration:** Uses Android Storage Access Framework (SAF) with persistable URI permissions for default download folders, and `androidx.core.content.FileProvider` for launching system viewing intents securely.
+- **Database (`infra/`):** PostgreSQL 18 stores user credentials (Argon2id/PBKDF2), active device sessions, item metadata, and transfer audit logs.
 
 ---
 
-## Quickstart (60 Seconds)
+## Quickstart (Self-Hosting with Docker)
 
 ### Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with Compose v2
-- PowerShell 7+ (Windows) or Bash (macOS/Linux)
-- .NET 10 SDK (for local verification)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine with Compose v2)
+- PowerShell 7+ (Windows) or Bash (macOS / Linux)
+- .NET 10 SDK *(optional, only if building the backend locally)*
 
-### 1. Generate Local Credentials & TLS
-Run the local setup script from repository root:
+### 1. Generate Local Certificates & Credentials
+From the repository root, run the setup script:
+
 ```powershell
 ./scripts/setup-local.ps1
 ```
-*This generates a trusted localhost development certificate in `.local/tls/` and configures a high-entropy bootstrap password in `.env`.*
 
-### 2. Launch the Stack
+*What this does: Generates a trusted localhost TLS certificate in `.local/tls/` and generates a secure random bootstrap password in your `.env` file.*
+
+### 2. Start the Stack
 ```powershell
 docker compose up --build -d
 ```
 
 ### 3. Open Your Inbox
 Open **<https://localhost:8080>** in your browser.
-- **Identifier:** `owner@vault.local` (or `owner`)
-- **Password:** Found in `.env` as `VAULT_BOOTSTRAP_PASSWORD`
+- **Username:** `owner@vault.local` (or simply `owner`)
+- **Password:** The generated password located in your `.env` file as `VAULT_BOOTSTRAP_PASSWORD`
 
-To shut down and retain data: `docker compose down`. To purge all data and keys: `docker compose down --volumes`.
+To stop the containers: `docker compose down`.  
+To stop and erase all data: `docker compose down --volumes`.
 
 ---
 
-## Android Client Setup
+## Android App Setup
 
 ### 1. Download & Install APK
-Download the signed build from [GitHub Releases](https://github.com/axewhyzed/vault/releases):
+Download the signed debug build from [GitHub Releases](https://github.com/axewhyzed/vault/releases):
 
 👉 **[Download vault-debug-v0.3.0.apk](https://github.com/axewhyzed/vault/releases)**
 
-Or install directly via ADB:
+Or install directly onto a connected phone or emulator via ADB:
 ```powershell
 adb install -r vault-debug-v0.3.0.apk
 ```
 
-### 2. Pair or Sign In in Seconds
-1. In your desktop Vault inbox, click **Pair Phone** in the topbar.
-2. Open Vault on your phone and tap **Scan QR Code** to point your camera at the screen.
-3. *Alternatively*, tap **Sign In with Credentials** to enter your server address, username, and password directly.
+### 2. Sign In or Pair
+- **Option A — Scan QR Code (Recommended):** Click **Pair Phone** in the web topbar, open the app on your phone, and tap **Scan QR Code**. Pairing completes in about one second.
+- **Option B — Username & Password:** Tap **Sign In with Credentials**, enter your username and password, and tap Sign In. (The server URL defaults automatically to your host, or can be expanded to point to a custom domain).
 
-Your device maintains a 14-day sliding session that automatically refreshes as you use the app.
+Once signed in, the app maintains a 14-day sliding session that refreshes automatically as you use it.
 
 ---
 
-## Local LAN & Physical Device Testing
+## Running Over Local Wi-Fi (Physical Phone)
 
-To connect a physical Android phone to your PC over local Wi-Fi:
+To connect a physical Android device to Vault running on your computer over your home Wi-Fi:
 
 1. **Install mkcert:**
    ```powershell
    choco install mkcert   # or: scoop install mkcert
    ```
 2. **Issue LAN Certificate:**
-   Find your PC's local IP (e.g., `192.168.1.25`) and issue the certificate:
+   Find your computer's local IP address (e.g. `192.168.1.25`) and issue certificates for both `localhost` and your LAN IP:
    ```powershell
    $lanIp = '192.168.1.25'
    ./scripts/setup-local.ps1
@@ -204,8 +215,9 @@ To connect a physical Android phone to your PC over local Wi-Fi:
    mkcert -cert-file .local/tls/dev-cert.pem -key-file .local/tls/dev-cert.key localhost $lanIp
    mkcert -CAROOT
    ```
-3. **Install Public CA on Android:**
-   Copy `rootCA.pem` to your Android device and install it under **Settings → Security → Install a Certificate → CA Certificate**.
+3. **Trust the Certificate on Android:**
+   Copy `rootCA.pem` to your phone and install it:  
+   **Settings → Security → Encryption & credentials → Install a certificate → CA Certificate**.
 4. **Update `.env`:**
    ```dotenv
    VAULT_WEB_PORT=8080
@@ -213,23 +225,24 @@ To connect a physical Android phone to your PC over local Wi-Fi:
    VAULT_LAN_ORIGIN=https://192.168.1.25:8080
    VAULT_SERVER_ORIGIN=https://192.168.1.25:8080
    ```
-5. **Rebuild Android App for LAN:**
+5. **Build and install Android app configured for your LAN:**
    ```powershell
    cd android
    ./gradlew.bat -PvaultDebugServerOrigin=https://192.168.1.25:8080 assembleDebug
+   adb install -r app/build/outputs/apk/debug/app-debug.apk
    ```
 
 ---
 
-## Automated Verification
+## Automated Verification & Testing
 
-Vault enforces full end-to-end verification locally before any deployment:
+Vault includes test coverage across the backend, frontend, and mobile clients. Run verification locally before committing changes:
 
 ```powershell
-# Full backend, database migrations, security headers, and frontend test suite:
+# Run backend tests, database migrations, and frontend lint/build checks:
 ./scripts/test.ps1
 
-# Android client build, unit tests (MockWebServer), and linting:
+# Run Android compilation, MockWebServer unit tests, Compose tests, and Android lint:
 ./scripts/test-android.ps1
 ```
 
@@ -238,11 +251,11 @@ Vault enforces full end-to-end verification locally before any deployment:
 ## Repository Structure
 
 ```text
-├── src/api/Vault.Api/     # ASP.NET Core 10 Minimal APIs & domain modules (Identity, Storage, Transfers)
-├── web/                   # React 19 + TypeScript frontend (Vite, CSS tokens, Compose Hub)
-├── android/               # Native Android application (Jetpack Compose, WorkManager, Encrypted Cache)
-├── infra/                 # Nginx proxy configuration, PostgreSQL, and backup scripts
-├── tests/                 # Unit, integration, and security test suites (.NET & Android MockWebServer)
+├── src/api/Vault.Api/     # ASP.NET Core 10 Minimal APIs & domain modules (Auth, Storage, Transfers)
+├── web/                   # React 19 + TypeScript frontend (Vite, CSS design tokens, Compose Hub)
+├── android/               # Native Android client (Jetpack Compose, WorkManager, Encrypted Cache)
+├── infra/                 # Nginx reverse proxy configuration, PostgreSQL, and backup automation
+├── tests/                 # Integration test suites (.NET test host & Android MockWebServer)
 ├── docs/assets/           # Screenshots, UI captures, and architectural diagrams
 └── scripts/               # One-command verification and local setup automation
 ```
@@ -251,11 +264,11 @@ Vault enforces full end-to-end verification locally before any deployment:
 
 ## Contributing & Guidelines
 
-All agents and contributors modifying this repository must follow the architectural boundaries and commit hygiene defined in [AGENTS.md](AGENTS.md).
+All agents and contributors modifying this repository must follow the architectural boundaries and commit standards detailed in [AGENTS.md](AGENTS.md):
 
-- **Cohesive Batching:** No single-line or micro-commits to `android/**`.
-- **Pre-commit Verification:** Always pass `./scripts/test-android.ps1` before committing Android modifications.
-- **Zero-Binary Policy:** Never commit `.apk`, `.jar`, `.so`, or `.keystore` binaries to git.
+- **Cohesive Batching:** Android changes must represent complete, verified units of work (no micro-commits).
+- **Mandatory Local Verification:** Always pass `./scripts/test-android.ps1` before committing any Android code.
+- **Zero-Binary Policy:** Never commit `.apk`, `.jar`, `.aar`, `.so`, or `.keystore` files directly to git. Releases and artifacts are built and distributed through GitHub Actions.
 
 ---
 
