@@ -1994,6 +1994,39 @@ button:disabled { cursor: not-allowed; }
   color: var(--ink-secondary);
 }
 
+.modal-card--devices {
+  width: min(100%, 560px);
+}
+
+.device-item-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.device-revoke-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.device-revoke-btn:hover:not(:disabled) {
+  background: var(--danger-hover);
+  border-color: var(--danger);
+}
+
+.device-revoke-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .device-badge {
   font-size: 10.5px;
   font-weight: 600;
@@ -2019,6 +2052,7 @@ button:disabled { cursor: not-allowed; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 /* ==========================================================================

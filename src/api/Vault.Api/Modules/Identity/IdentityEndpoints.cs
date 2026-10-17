@@ -91,7 +91,13 @@ internal static class IdentityEndpoints
         if (verification == PasswordVerificationResult.SuccessRehashNeeded)
             user.PasswordHash = hasher.HashPassword(user, request.Password);
 
-        var device = new VaultDevice { UserId = user.Id };
+        var now = DateTime.UtcNow;
+        var expiredThreshold = now.AddHours(-8);
+        await database.Devices
+            .Where(d => d.UserId == user.Id && d.Platform == "web" && d.RevokedAt == null && d.CreatedAt <= expiredThreshold)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, now), cancellationToken);
+
+        var device = new VaultDevice { UserId = user.Id, CreatedAt = now };
         database.Devices.Add(device);
         database.AuditEvents.Add(new VaultAuditEvent
         {

@@ -29,6 +29,9 @@ internal static class DeviceAuthEndpoints
         devices.MapGet("/", GetActiveDevicesAsync).RequireAuthorization()
             .WithName("GetActiveDevices").WithSummary("List all active connected devices for the authenticated user.")
             .Produces<DeviceListResponse>(200).Produces(401);
+        devices.MapDelete("/{id:guid}", RevokeDeviceByIdAsync).RequireAuthorization()
+            .WithName("RevokeDeviceById").WithSummary("Revoke a specific connected device by its ID.")
+            .Produces(204).Produces(401).Produces(404);
         devices.MapPost("/revoke-current", RevokeCurrentDeviceAsync).RequireAuthorization()
             .WithName("RevokeCurrentDevice").WithSummary("Revoke the calling device session.")
             .Produces(204).Produces(401).Produces(403);
@@ -136,7 +139,22 @@ internal static class DeviceAuthEndpoints
         pair.ConsumedAt = now;
         pair.PairingIdempotencyKey = idempotencyKey;
         pair.PairingRequestFingerprint = requestFingerprint;
-        var device = new VaultDevice { UserId = pair.UserId, Name = pairingRequest.DeviceName.Trim(), Platform = "android", CreatedAt = now };
+        var trimmedPairName = pairingRequest.DeviceName.Trim();
+        var existingSameNamedPair = await db.Devices
+            .Where(d => d.UserId == pair.UserId && d.Name == trimmedPairName && d.Platform == "android" && d.RevokedAt == null)
+            .ToListAsync(ct);
+        foreach (var oldDev in existingSameNamedPair)
+        {
+            oldDev.RevokedAt = now;
+            var oldSessions = await db.AndroidSessions.Where(s => s.DeviceId == oldDev.Id && s.RevokedAt == null).ToListAsync(ct);
+            foreach (var s in oldSessions)
+            {
+                s.RevokedAt = now;
+                await db.DeviceCredentials.Where(c => c.SessionId == s.Id && c.RevokedAt == null)
+                    .ExecuteUpdateAsync(up => up.SetProperty(x => x.RevokedAt, now), ct);
+            }
+        }
+        var device = new VaultDevice { UserId = pair.UserId, Name = trimmedPairName, Platform = "android", CreatedAt = now };
         var session = new AndroidSession { UserId = pair.UserId, DeviceId = device.Id, CreatedAt = now, RefreshExpiresAt = now.Add(RefreshLifetime) };
         var access = NewToken("va1_");
         var refresh = NewToken("vr1_");
@@ -203,10 +221,25 @@ internal static class DeviceAuthEndpoints
 
         var now = clock.GetUtcNow().UtcDateTime;
         var platform = string.IsNullOrWhiteSpace(request.Platform) ? "android" : request.Platform.Trim();
+        var trimmedDeviceName = request.DeviceName.Trim();
+        var existingSameNamedLogin = await db.Devices
+            .Where(d => d.UserId == user.Id && d.Name == trimmedDeviceName && d.Platform == platform && d.RevokedAt == null)
+            .ToListAsync(ct);
+        foreach (var oldDev in existingSameNamedLogin)
+        {
+            oldDev.RevokedAt = now;
+            var oldSessions = await db.AndroidSessions.Where(s => s.DeviceId == oldDev.Id && s.RevokedAt == null).ToListAsync(ct);
+            foreach (var s in oldSessions)
+            {
+                s.RevokedAt = now;
+                await db.DeviceCredentials.Where(c => c.SessionId == s.Id && c.RevokedAt == null)
+                    .ExecuteUpdateAsync(up => up.SetProperty(x => x.RevokedAt, now), ct);
+            }
+        }
         var device = new VaultDevice
         {
             UserId = user.Id,
-            Name = request.DeviceName.Trim(),
+            Name = trimmedDeviceName,
             Platform = platform,
             CreatedAt = now
         };
@@ -364,15 +397,20 @@ internal static class DeviceAuthEndpoints
     private static VaultAuditEvent Audit(string type, Guid? userId, Guid? deviceId, HttpContext context) => new() { EventType = type, ActorUserId = userId, ActorDeviceId = deviceId, CorrelationId = context.TraceIdentifier };
     private static IResult Error(HttpContext context, int status, string code, string message) => IdentityErrors.Create(context, status, code, message);
 
-    private static async Task<IResult> GetActiveDevicesAsync(HttpContext context, VaultDbContext db, CancellationToken ct)
+    private static async Task<IResult> GetActiveDevicesAsync(HttpContext context, VaultDbContext db, TimeProvider clock, CancellationToken ct)
     {
         var userId = IdentityEndpoints.GetGuid(context.User, "userId");
         var currentDeviceId = IdentityEndpoints.GetGuid(context.User, "deviceId");
         if (userId == Guid.Empty)
             return Error(context, 401, "unauthorized", "Authentication is required.");
 
+        var now = clock.GetUtcNow().UtcDateTime;
+        var webMaxAge = now.AddHours(-8);
+
         var devices = await db.Devices.AsNoTracking()
-            .Where(d => d.UserId == userId && d.RevokedAt == null)
+            .Where(d => d.UserId == userId && d.RevokedAt == null &&
+                ((d.Platform == "web" && (d.Id == currentDeviceId || d.CreatedAt > webMaxAge)) ||
+                 (d.Platform == "android" && db.AndroidSessions.Any(s => s.DeviceId == d.Id && s.RevokedAt == null && s.RefreshExpiresAt > now))))
             .OrderByDescending(d => d.CreatedAt)
             .Select(d => new DeviceSummary(
                 d.Id,
@@ -384,6 +422,49 @@ internal static class DeviceAuthEndpoints
             .ToListAsync(ct);
 
         return Results.Ok(new DeviceListResponse(devices));
+    }
+
+    private static async Task<IResult> RevokeDeviceByIdAsync(
+        Guid id,
+        HttpContext context,
+        VaultDbContext db,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var userId = IdentityEndpoints.GetGuid(context.User, "userId");
+        var currentDeviceId = IdentityEndpoints.GetGuid(context.User, "deviceId");
+        if (userId == Guid.Empty)
+            return Error(context, 401, "unauthorized", "Authentication is required.");
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (!await LockOwnerAsync(db, userId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
+
+        var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == id && x.UserId == userId, ct);
+        if (device is null)
+            return Error(context, 404, "device_not_found", "Device was not found.");
+
+        if (device.RevokedAt is null)
+        {
+            device.RevokedAt = now;
+            var sessions = await db.AndroidSessions.Where(s => s.DeviceId == device.Id && s.RevokedAt == null).ToListAsync(ct);
+            foreach (var s in sessions)
+            {
+                s.RevokedAt = now;
+                await db.DeviceCredentials.Where(c => c.SessionId == s.Id && c.RevokedAt == null)
+                    .ExecuteUpdateAsync(up => up.SetProperty(x => x.RevokedAt, now), ct);
+            }
+        }
+
+        db.AuditEvents.Add(Audit("device_revoked", userId, id, context));
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+
+        if (id == currentDeviceId && context.User.Identity?.AuthenticationType == IdentityEndpoints.Scheme)
+            await context.SignOutAsync(IdentityEndpoints.Scheme);
+
+        return Results.NoContent();
     }
 
     internal sealed record DeviceSummary(Guid Id, string Name, string Platform, DateTime CreatedAt, bool IsCurrent);

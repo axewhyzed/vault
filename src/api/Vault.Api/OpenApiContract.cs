@@ -34,14 +34,14 @@ internal static class OpenApiContract
         foreach (var (method, operation) in pathItem.Operations!)
         {
             var isUnsafeOperation = method.ToString() is "POST" or "PUT" or "PATCH" or "DELETE";
-            if (path is "/api/v1/auth/me" || path is "/api/v1/devices" || path.StartsWith("/api/v1/items", StringComparison.Ordinal) || path.StartsWith("/api/v1/uploads", StringComparison.Ordinal))
+            if (path is "/api/v1/auth/me" || path is "/api/v1/devices" || path is "/api/v1/devices/{id}" || path.StartsWith("/api/v1/items", StringComparison.Ordinal) || path.StartsWith("/api/v1/uploads", StringComparison.Ordinal))
             {
                 operation.Security ??= [];
                 operation.Security.Add(new OpenApiSecurityRequirement { [cookieScheme] = [] });
                 operation.Security.Add(new OpenApiSecurityRequirement { [bearerScheme] = [] });
             }
             if (path is "/api/v1/auth/logout") operation.Security = [new OpenApiSecurityRequirement { [cookieScheme] = [] }];
-            if (path is "/api/v1/auth/sessions/revoke-all" or "/api/v1/devices/revoke-current")
+            if (path is "/api/v1/auth/sessions/revoke-all" or "/api/v1/devices/revoke-current" or "/api/v1/devices/{id}")
             {
                 operation.Security = [new OpenApiSecurityRequirement { [cookieScheme] = [] }, new OpenApiSecurityRequirement { [bearerScheme] = [] }];
                 operation.Description = $"{operation.Description} Browser-cookie requests require an allowed Origin header and the antiforgery cookie plus X-CSRF-TOKEN header. Bearer requests do not use ambient browser credentials.";
@@ -51,7 +51,7 @@ internal static class OpenApiContract
                 operation.Security = [new OpenApiSecurityRequirement { [cookieScheme] = [] }];
                 operation.Description = $"{operation.Description} Requires an allowed Origin header and the antiforgery cookie plus X-CSRF-TOKEN header.";
             }
-            if (path is "/api/v1/auth/login" or "/api/v1/auth/logout" || isUnsafeOperation && (path.StartsWith("/api/v1/items", StringComparison.Ordinal) || path.StartsWith("/api/v1/uploads", StringComparison.Ordinal) || path is "/api/v1/devices/pairing-sessions"))
+            if (path is "/api/v1/auth/login" or "/api/v1/auth/logout" || isUnsafeOperation && (path.StartsWith("/api/v1/items", StringComparison.Ordinal) || path.StartsWith("/api/v1/uploads", StringComparison.Ordinal) || path is "/api/v1/devices/{id}" || path is "/api/v1/devices/pairing-sessions"))
                 operation.Description = $"{operation.Description} Cookie-authenticated requests require an allowed Origin header and the antiforgery cookie plus X-CSRF-TOKEN header.";
             if (path is "/api/v1/devices/pair")
             {
@@ -59,7 +59,7 @@ internal static class OpenApiContract
                 operation.Parameters.Add(new OpenApiParameter { Name = "Idempotency-Key", In = ParameterLocation.Header, Required = true,
                     Description = "UUID identifying this pairing attempt.", Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "uuid" } });
             }
-            if (isUnsafeOperation && (path is "/api/v1/auth/sessions/revoke-all" or "/api/v1/devices/revoke-current" or "/api/v1/devices/pairing-sessions" or "/api/v1/auth/logout" || path.StartsWith("/api/v1/items", StringComparison.Ordinal) || path.StartsWith("/api/v1/uploads", StringComparison.Ordinal)))
+            if (isUnsafeOperation && (path is "/api/v1/auth/sessions/revoke-all" or "/api/v1/devices/revoke-current" or "/api/v1/devices/pairing-sessions" or "/api/v1/auth/logout" or "/api/v1/devices/{id}" || path.StartsWith("/api/v1/items", StringComparison.Ordinal) || path.StartsWith("/api/v1/uploads", StringComparison.Ordinal)))
             {
                 operation.Parameters ??= [];
                 operation.Parameters.Add(new OpenApiParameter { Name = "Origin", In = ParameterLocation.Header, Required = path is "/api/v1/devices/pairing-sessions" or "/api/v1/auth/logout",

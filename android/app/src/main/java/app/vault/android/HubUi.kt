@@ -259,15 +259,33 @@ internal fun HubScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            SuggestionChip(
-                                onClick = {},
-                                label = {
-                                    Text(
-                                        if (dev.isCurrent || dev.id == credentials.deviceId) "This device" else "Active",
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                },
-                            )
+                            val isThisDevice = dev.isCurrent || dev.id == credentials.deviceId
+                            if (isThisDevice) {
+                                SuggestionChip(
+                                    onClick = {},
+                                    label = {
+                                        Text("This device", style = MaterialTheme.typography.labelSmall)
+                                    },
+                                )
+                            } else {
+                                OutlinedButton(
+                                    onClick = {
+                                        scope.launch {
+                                            val res = api.revokeDevice(dev.id)
+                                            res.onSuccess {
+                                                devicesList = devicesList?.filter { it.id != dev.id }
+                                                onShowMessage("Device disconnected.")
+                                            }.onFailure {
+                                                onShowMessage(it.message ?: "Could not disconnect device.")
+                                            }
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.heightIn(min = 32.dp),
+                                ) {
+                                    Text("Disconnect", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                }
+                            }
                         }
                     }
                 } else {
