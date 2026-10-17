@@ -258,6 +258,7 @@ internal fun InboxTab(
     ownerKey: String,
     foregroundToken: Int,
     modifier: Modifier = Modifier,
+    onCacheRefreshed: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -338,6 +339,7 @@ internal fun InboxTab(
                 hasLoaded = true
                 if (reset) {
                     store.saveInboxCache(CachedInbox(ownerKey, System.currentTimeMillis(), page.items, page.nextCursor, page.quota))
+                    onCacheRefreshed?.invoke()
                 }
             }
         } catch (e: Exception) {
@@ -452,7 +454,12 @@ internal fun InboxTab(
     }
 
     val detail = selected
-    Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         if (detail != null || detailLoading || detailId != null) {
             TextButton(onClick = { detailEpoch++; detailLoading = false; downloadFile?.delete(); downloadFile = null; selected = null; detailId = null; detailError = null; showOperationMessage(null) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("‹  Inbox") }
             if (detailLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -710,7 +717,7 @@ internal fun InboxTab(
                     onRefresh = { scope.launch { fetchPage(reset = true) } },
                     modifier = Modifier.weight(1f)
                 ) {
-                    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         if (searchQuery.isBlank()) {
                             quota?.let { q ->
                                 item(key = "inbox-quota-card") {

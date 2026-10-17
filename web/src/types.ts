@@ -51,3 +51,16 @@ export type ApiError = {
   message?: string;
   correlationId?: string;
 };
+
+export type DeviceSummary = {
+  id: string;
+  name: string;
+  platform: 'android' | 'web' | string;
+  createdAt: string;
+  isCurrent: boolean;
+};
+
+export type DeviceListResponse = {
+  devices: DeviceSummary[];
+};
+

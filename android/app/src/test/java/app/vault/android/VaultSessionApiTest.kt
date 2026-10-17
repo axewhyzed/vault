@@ -175,4 +175,37 @@ class VaultSessionApiTest {
             assertEquals(creds, store.credentials())
         } finally { server.shutdown() }
     }
+
+    @Test fun getActiveDevicesReturnsConnectedDevicesList() = kotlinx.coroutines.runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = EncryptedStore(
+                ApplicationProvider.getApplicationContext<Context>(),
+                VaultCrypto(KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()),
+            )
+            val serverOrigin = server.url("/").toString().trimEnd('/')
+            val creds = Credentials(serverOrigin, "va1_access", "2099-01-01T00:00:00Z", "vr1_refresh", "2099-02-01T00:00:00Z", "owner", "device")
+            store.saveCredentials(creds)
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"devices":[{"id":"dev-1","name":"Pixel 8","platform":"android","isCurrent":true,"createdAt":"2026-10-17T12:00:00Z"},{"id":"dev-2","name":"Chrome on Windows","platform":"web","isCurrent":false,"createdAt":"2026-10-17T10:00:00Z"}]}""")
+            )
+
+            val result = VaultApi(store).getActiveDevices()
+            assertTrue(result.isSuccess)
+            val devices = result.getOrThrow()
+            assertEquals(2, devices.size)
+            assertEquals("Pixel 8", devices[0].name)
+            assertTrue(devices[0].isCurrent)
+            assertEquals("Chrome on Windows", devices[1].name)
+            assertFalse(devices[1].isCurrent)
+
+            val req = server.takeRequest()
+            assertEquals("GET", req.method)
+            assertEquals("/api/v1/devices", req.path)
+            assertEquals("Bearer va1_access", req.getHeader("Authorization"))
+        } finally { server.shutdown() }
+    }
 }
