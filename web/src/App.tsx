@@ -870,6 +870,7 @@ export default function App() {
           setSecurityModalOpen(true);
         }}
         onUnauthorized={signOutOnUnauthorized}
+        fetchCsrf={fetchCsrf}
       />
 
       <PairDeviceModal

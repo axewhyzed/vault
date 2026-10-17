@@ -295,6 +295,24 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
         }
     }
 
+    suspend fun revokeDevice(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val response = executeAuthedRequest { base, token ->
+                val url = base.newBuilder().addPathSegments("api/v1/devices").addPathSegment(id).build()
+                Request.Builder()
+                    .url(url)
+                    .header("Accept", "application/json")
+                    .header("Cache-Control", "no-store")
+                    .header("Authorization", "Bearer $token")
+                    .delete()
+                    .build()
+            }
+            response.use { res ->
+                if (!res.isSuccessful && res.code != 204) throw failure(res.code, res.body?.string().orEmpty())
+            }
+        }
+    }
+
     fun downloadToTemp(detail: InboxDetail, onProgress: (Long) -> Unit = {}): File {
         val itemId = canonicalUuid(detail.id) ?: throw ApiFailure(400, "invalid_item_id", "This inbox item could not be downloaded.")
         if (detail.type != "file" || detail.downloadUrl != "/api/v1/items/$itemId/download" || detail.sizeBytes !in 0..MAX_INBOX_FILE_BYTES ||

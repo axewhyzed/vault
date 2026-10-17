@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { DeviceSummary, DeviceListResponse } from '../types';
+import type { DeviceSummary, DeviceListResponse, Csrf } from '../types';
 import {
   CloseIcon,
   DevicesIcon,
@@ -16,6 +16,7 @@ type Props = {
   onOpenPairModal: () => void;
   onOpenSecurityModal: () => void;
   onUnauthorized: () => void;
+  fetchCsrf: () => Promise<Csrf>;
 };
 
 export default function ConnectedDevicesModal({
@@ -24,9 +25,11 @@ export default function ConnectedDevicesModal({
   onOpenPairModal,
   onOpenSecurityModal,
   onUnauthorized,
+  fetchCsrf,
 }: Props) {
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchDevices = useCallback(async () => {
@@ -53,6 +56,36 @@ export default function ConnectedDevicesModal({
       setLoading(false);
     }
   }, [onUnauthorized]);
+
+  async function handleRevokeDevice(deviceId: string) {
+    if (revokingId) return;
+    setRevokingId(deviceId);
+    setError(null);
+    try {
+      const csrf = await fetchCsrf();
+      const res = await fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json',
+          [csrf.headerName]: csrf.token,
+        },
+      });
+      if (res.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      if (!res.ok && res.status !== 204) {
+        throw new Error('Could not disconnect device.');
+      }
+      setDevices((prev) => prev.filter((d) => d.id !== deviceId));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to disconnect device');
+    } finally {
+      setRevokingId(null);
+    }
+  }
 
   useEffect(() => {
     if (!isOpen) return;
@@ -143,12 +176,24 @@ export default function ConnectedDevicesModal({
                   <div className="device-item-info">
                     <div className="device-item-title-row">
                       <span className="device-item-name">{device.name}</span>
-                      {device.isCurrent && (
-                        <span className="device-badge device-badge--current">This browser</span>
-                      )}
-                      {!device.isCurrent && (
-                        <span className="device-badge device-badge--active">Active</span>
-                      )}
+                      <div className="device-item-badges">
+                        {device.isCurrent ? (
+                          <span className="device-badge device-badge--current">This browser</span>
+                        ) : (
+                          <>
+                            <span className="device-badge device-badge--active">Active</span>
+                            <button
+                              type="button"
+                              className="device-revoke-btn"
+                              onClick={() => void handleRevokeDevice(device.id)}
+                              disabled={revokingId === device.id}
+                              title="Disconnect this device"
+                            >
+                              {revokingId === device.id ? 'Disconnecting…' : 'Disconnect'}
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                     <span className="device-item-meta">
                       {isAndroid ? 'Android Native Client' : 'Web Desktop Workspace'} · Linked {formattedDate}
@@ -174,7 +219,7 @@ export default function ConnectedDevicesModal({
           </button>
           <button
             type="button"
-            className="ghost-button ghost-button--danger"
+            className="danger-button"
             onClick={() => {
               onClose();
               onOpenSecurityModal();

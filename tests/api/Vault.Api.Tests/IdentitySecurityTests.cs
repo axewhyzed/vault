@@ -39,6 +39,7 @@ public sealed class IdentitySecurityTests
         var paths = document.RootElement.GetProperty("paths");
         Assert.True(paths.TryGetProperty("/api/v1/auth/login", out _));
         Assert.True(paths.TryGetProperty("/api/v1/devices", out var devicesPath));
+        Assert.True(paths.TryGetProperty("/api/v1/devices/{id}", out var deviceDeletePath));
         Assert.True(paths.TryGetProperty("/api/v1/devices/pairing-sessions", out var pairingPath));
         Assert.True(paths.TryGetProperty("/api/v1/devices/pair", out var pairPath));
         Assert.True(paths.TryGetProperty("/api/v1/devices/login", out var deviceLoginPath));
@@ -51,6 +52,7 @@ public sealed class IdentitySecurityTests
         Assert.Contains("201", pairPath.GetProperty("post").GetProperty("responses").EnumerateObject().Select(x => x.Name));
         Assert.Contains("200", refreshPath.GetProperty("post").GetProperty("responses").EnumerateObject().Select(x => x.Name));
         AssertSecurityAlternatives(revokeAllPath.GetProperty("post"), "VaultCookie", "VaultBearer");
+        AssertSecurityAlternatives(deviceDeletePath.GetProperty("delete"), "VaultCookie", "VaultBearer");
         AssertSecurityAlternatives(pairingPath.GetProperty("post"), "VaultCookie");
         var scheme = document.RootElement.GetProperty("components").GetProperty("securitySchemes").GetProperty("VaultCookie");
         Assert.Equal("apiKey", scheme.GetProperty("type").GetString());
@@ -592,6 +594,120 @@ public sealed class IdentitySecurityTests
         Assert.True(devices[0].GetProperty("isCurrent").GetBoolean());
     }
 
+    [Fact]
+    public async Task Get_active_devices_filters_stale_web_and_expired_android_sessions()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var web = host.CreateClient();
+
+        var csrf = await GetCsrfAsync(web);
+        var account = await LoginAsync(host, web, TestApiHost.Email1, Password1, csrf.Token);
+
+        // Log in mobile device
+        using var mobile = host.CreateClient();
+        var mobileTokens = await DeviceLoginAsync(mobile, TestApiHost.Email1, Password1, "Pixel 8");
+
+        // Stale web session (older than 8h, not current)
+        var staleWebId = await host.AddStaleWebDeviceAsync(account.UserId, TimeSpan.FromHours(9));
+
+        // Active devices should show current web and active mobile, but NOT stale web
+        using var initialDevices = await web.GetAsync("/api/v1/devices");
+        Assert.Equal(HttpStatusCode.OK, initialDevices.StatusCode);
+        using var doc1 = JsonDocument.Parse(await initialDevices.Content.ReadAsStringAsync());
+        var devs1 = doc1.RootElement.GetProperty("devices").EnumerateArray().ToList();
+        Assert.Equal(2, devs1.Count);
+        Assert.Contains(devs1, d => d.GetProperty("id").GetGuid() == account.DeviceId);
+        Assert.Contains(devs1, d => d.GetProperty("id").GetGuid() == mobileTokens.DeviceId);
+        Assert.DoesNotContain(devs1, d => d.GetProperty("id").GetGuid() == staleWebId);
+
+        // Now expire the mobile device's refresh token
+        await host.ExpireAndroidSessionsForDeviceAsync(mobileTokens.DeviceId);
+
+        // Mobile device should now be excluded from active devices list
+        using var refreshedDevices = await web.GetAsync("/api/v1/devices");
+        using var doc2 = JsonDocument.Parse(await refreshedDevices.Content.ReadAsStringAsync());
+        var devs2 = doc2.RootElement.GetProperty("devices").EnumerateArray().ToList();
+        Assert.Single(devs2);
+        Assert.Equal(account.DeviceId, devs2[0].GetProperty("id").GetGuid());
+    }
+
+    [Fact]
+    public async Task Revoke_device_by_id_revokes_device_and_associated_sessions()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var web = host.CreateClient();
+
+        var csrf = await GetCsrfAsync(web);
+        await LoginAsync(host, web, TestApiHost.Email1, Password1, csrf.Token);
+
+        using var mobile = host.CreateClient();
+        var tokens = await DeviceLoginAsync(mobile, TestApiHost.Email1, Password1, "OnePlus 12");
+
+        // Verify mobile token works
+        using var mobileCheck = await SendBearerAsync(mobile, tokens.AccessToken, "/api/v1/items");
+        Assert.Equal(HttpStatusCode.OK, mobileCheck.StatusCode);
+
+        // Revoking non-existent device returns 404
+        var nonExistentId = Guid.NewGuid();
+        using var notFoundRequest = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/devices/{nonExistentId}");
+        notFoundRequest.Headers.Add("Origin", Origin);
+        notFoundRequest.Headers.Add("X-CSRF-TOKEN", (await GetCsrfAsync(web)).Token);
+        using var notFoundResponse = await web.SendAsync(notFoundRequest);
+        Assert.Equal(HttpStatusCode.NotFound, notFoundResponse.StatusCode);
+
+        // Revoke the mobile device from web
+        var deleteCsrf = await GetCsrfAsync(web);
+        using var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/devices/{tokens.DeviceId}");
+        deleteRequest.Headers.Add("Origin", Origin);
+        deleteRequest.Headers.Add("X-CSRF-TOKEN", deleteCsrf.Token);
+        using var deleteResponse = await web.SendAsync(deleteRequest);
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        // Mobile token should now be rejected
+        using var afterRevokeCheck = await SendBearerAsync(mobile, tokens.AccessToken, "/api/v1/items");
+        Assert.Equal(HttpStatusCode.Unauthorized, afterRevokeCheck.StatusCode);
+
+        // Device should no longer appear in active devices
+        using var devicesResponse = await web.GetAsync("/api/v1/devices");
+        using var doc = JsonDocument.Parse(await devicesResponse.Content.ReadAsStringAsync());
+        var devices = doc.RootElement.GetProperty("devices").EnumerateArray().ToList();
+        Assert.Single(devices);
+        Assert.Equal("Web browser", devices[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Android_device_login_and_pair_supersedes_duplicate_device_name()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var web = host.CreateClient();
+
+        var csrf = await GetCsrfAsync(web);
+        await LoginAsync(host, web, TestApiHost.Email1, Password1, csrf.Token);
+
+        // 1. Initial device login with name "CPH2729"
+        using var phone1 = host.CreateClient();
+        var tokens1 = await DeviceLoginAsync(phone1, TestApiHost.Email1, Password1, "CPH2729");
+        Assert.False(await host.IsDeviceRevokedAsync(tokens1.DeviceId));
+
+        // 2. Re-login with same device name "CPH2729"
+        using var phone2 = host.CreateClient();
+        var tokens2 = await DeviceLoginAsync(phone2, TestApiHost.Email1, Password1, "CPH2729");
+
+        // The old device and its token must be revoked
+        Assert.True(await host.IsDeviceRevokedAsync(tokens1.DeviceId));
+        Assert.False(await host.IsDeviceRevokedAsync(tokens2.DeviceId));
+        using var phone1Rejected = await SendBearerAsync(phone1, tokens1.AccessToken, "/api/v1/items");
+        Assert.Equal(HttpStatusCode.Unauthorized, phone1Rejected.StatusCode);
+
+        // Active devices list should only show 1 CPH2729 device
+        using var devicesResponse = await web.GetAsync("/api/v1/devices");
+        using var doc = JsonDocument.Parse(await devicesResponse.Content.ReadAsStringAsync());
+        var devices = doc.RootElement.GetProperty("devices").EnumerateArray().ToList();
+        var cphDevices = devices.Where(d => d.GetProperty("name").GetString() == "CPH2729").ToList();
+        Assert.Single(cphDevices);
+        Assert.Equal(tokens2.DeviceId, cphDevices[0].GetProperty("id").GetGuid());
+    }
+
     private static async Task<TokenResponse> DeviceLoginAsync(HttpClient client, string identifier, string password, string deviceName)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/devices/login")
@@ -849,6 +965,41 @@ public sealed class IdentitySecurityTests
             var credential = await database.DeviceCredentials.SingleAsync(value => value.TokenHash == Hash(token));
             credential.ExpiresAt = DateTime.UtcNow.AddMinutes(-1);
             await database.SaveChangesAsync();
+        }
+
+        public async Task<Guid> AddStaleWebDeviceAsync(Guid userId, TimeSpan age)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            var dev = new VaultDevice
+            {
+                UserId = userId,
+                Name = "Web browser",
+                Platform = "web",
+                CreatedAt = DateTime.UtcNow.Subtract(age)
+            };
+            database.Devices.Add(dev);
+            await database.SaveChangesAsync();
+            return dev.Id;
+        }
+
+        public async Task ExpireAndroidSessionsForDeviceAsync(Guid deviceId)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            var sessions = await database.AndroidSessions.Where(s => s.DeviceId == deviceId).ToListAsync();
+            foreach (var s in sessions)
+            {
+                s.RefreshExpiresAt = DateTime.UtcNow.AddMinutes(-5);
+            }
+            await database.SaveChangesAsync();
+        }
+
+        public async Task<bool> IsDeviceRevokedAsync(Guid deviceId)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var database = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            return await database.Devices.Where(d => d.Id == deviceId).Select(d => d.RevokedAt != null).SingleAsync();
         }
 
         public async Task RunSeederAsync(string email, string password, string? username = null, bool syncCredentials = false)
