@@ -10,8 +10,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import okhttp3.mockwebserver.MockResponse
@@ -202,15 +204,15 @@ class InboxComposeTest {
 
             compose.waitUntil(5_000) { server.requestCount == 1 }
             compose.onNodeWithText("Note").performClick()
-            compose.waitUntil(5_000) { server.requestCount == 2 }
-            compose.onNodeWithText("Delete item").performClick()
+            compose.waitUntil(5_000) { server.requestCount == 2 && compose.onAllNodesWithText("Delete item").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Delete item").performScrollTo().performClick()
             compose.onNodeWithText("Delete this item from Vault? This cannot be undone.").assertExists()
             compose.onNodeWithText("Delete").performClick()
             compose.waitUntil(5_000) { server.requestCount == 3 }
             val deleteRequest = (1..3).map { server.takeRequest() }[2]
             assertEquals("DELETE", deleteRequest.method)
             assertEquals("/api/v1/items/$id", deleteRequest.path)
-            compose.onNodeWithText("Item deleted.").assertExists()
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Item deleted.").fetchSemanticsNodes().isNotEmpty() }
         } finally { server.shutdown() }
     }
 }
