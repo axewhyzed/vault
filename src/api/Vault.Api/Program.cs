@@ -13,6 +13,7 @@ using Vault.Api.Modules.Transfers;
 using Vault.Api.Modules.Shared.Persistence;
 using Vault.Api.Modules.Storage;
 using Vault.Api;
+using Scalar.AspNetCore;
 
 const string updateBootstrapCredentialsArgument = "--update-bootstrap-credentials";
 var updateBootstrapCredentials = args.Contains(updateBootstrapCredentialsArgument, StringComparer.Ordinal);
@@ -36,6 +37,7 @@ builder.Services.AddSingleton<LocalFileStore>();
 builder.Services.AddSingleton<IFileVolumeCapacity, DriveInfoFileVolumeCapacity>();
 builder.Services.AddSingleton<StorageMaintenanceGate>();
 builder.Services.AddSingleton<UploadInitiationLimiter>();
+builder.Services.AddHostedService<StorageCleanupWorker>();
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer(OpenApiContract.TransformAsync));
 var dataProtection = builder.Services.AddDataProtection()
@@ -175,6 +177,14 @@ app.UseMiddleware<BearerSessionMiddleware>();
 app.UseMiddleware<BrowserRequestSecurityMiddleware>();
 app.UseAuthorization();
 app.MapOpenApi("/api/openapi/{documentName}.json").AllowAnonymous();
+if (app.Environment.IsDevelopment())
+{
+    app.MapScalarApiReference(options =>
+    {
+        options.WithOpenApiRoutePattern("/api/openapi/{documentName}.json");
+        options.WithTitle("Vault API Reference");
+    });
+}
 app.MapMonitoringEndpoints();
 app.MapIdentityEndpoints();
 app.MapDeviceAuthEndpoints();

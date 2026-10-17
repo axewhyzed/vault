@@ -637,6 +637,74 @@ public sealed class TextItemTests
         Assert.True(await exclusive.WaitAsync(TimeSpan.FromSeconds(2)));
     }
 
+    [Fact]
+    public async Task Retention_hours_is_supported_and_validated_for_text_url_and_uploads()
+    {
+        using var host = await TestHost.CreateAsync();
+        using var client = await host.AuthenticatedClientAsync(TestHost.EmailA, PasswordA);
+
+        // 1. Valid retention hours for text item (e.g. 4 hours)
+        using var textCreated = await host.SendMutationAsync(client, HttpMethod.Post, "/api/v1/items/text", new
+        {
+            text = "Testing retention hours",
+            displayName = "Hourly snippet",
+            retentionHours = 4
+        }, Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.Created, textCreated.StatusCode);
+        using var textJson = await ReadJsonAsync(textCreated);
+        var textExpiresAt = textJson.RootElement.GetProperty("expiresAt").GetDateTimeOffset();
+        var textAvailableAt = textJson.RootElement.GetProperty("availableAt").GetDateTimeOffset();
+        Assert.Equal(4, Math.Round((textExpiresAt - textAvailableAt).TotalHours));
+
+        // 2. Valid retention hours for url item (e.g. 12 hours)
+        using var urlCreated = await host.SendMutationAsync(client, HttpMethod.Post, "/api/v1/items/url", new
+        {
+            url = "https://example.com/vault-test",
+            displayName = "Hourly link",
+            retentionHours = 12
+        }, Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.Created, urlCreated.StatusCode);
+        using var urlJson = await ReadJsonAsync(urlCreated);
+        var urlExpiresAt = urlJson.RootElement.GetProperty("expiresAt").GetDateTimeOffset();
+        var urlAvailableAt = urlJson.RootElement.GetProperty("availableAt").GetDateTimeOffset();
+        Assert.Equal(12, Math.Round((urlExpiresAt - urlAvailableAt).TotalHours));
+
+        // 3. Valid retention hours for upload session & completion (e.g. 6 hours)
+        var uploadKey = Guid.NewGuid();
+        using var uploadInitiated = await host.SendUploadInitiateAsync(client, uploadKey, new
+        {
+            displayName = "hourly-file.txt",
+            sizeBytes = 11,
+            retentionHours = 6
+        });
+        Assert.Equal(HttpStatusCode.Created, uploadInitiated.StatusCode);
+        using var uploadInitJson = await ReadJsonAsync(uploadInitiated);
+        var uploadId = uploadInitJson.RootElement.GetProperty("uploadId").GetGuid();
+        using var uploadStaged = await host.SendRawUploadAsync(client, uploadId, uploadKey, Encoding.UTF8.GetBytes("hello world"));
+        Assert.Equal(HttpStatusCode.OK, uploadStaged.StatusCode);
+        using var uploadCompleted = await host.SendUploadCompleteAsync(client, uploadId, uploadKey);
+        Assert.Equal(HttpStatusCode.Created, uploadCompleted.StatusCode);
+        using var uploadCompleteJson = await ReadJsonAsync(uploadCompleted);
+        var fileExpiresAt = uploadCompleteJson.RootElement.GetProperty("expiresAt").GetDateTimeOffset();
+        var fileAvailableAt = uploadCompleteJson.RootElement.GetProperty("availableAt").GetDateTimeOffset();
+        Assert.Equal(6, Math.Round((fileExpiresAt - fileAvailableAt).TotalHours));
+
+        // 4. Out of range validation (0 hours, 169 hours)
+        using var tooLow = await host.SendMutationAsync(client, HttpMethod.Post, "/api/v1/items/text", new
+        {
+            text = "Too low hours",
+            retentionHours = 0
+        }, Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, tooLow.StatusCode);
+
+        using var tooHigh = await host.SendMutationAsync(client, HttpMethod.Post, "/api/v1/items/text", new
+        {
+            text = "Too high hours",
+            retentionHours = 169
+        }, Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, tooHigh.StatusCode);
+    }
+
     private static async Task<Guid[]> ListItemIdsAsync(HttpResponseMessage response)
     {
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

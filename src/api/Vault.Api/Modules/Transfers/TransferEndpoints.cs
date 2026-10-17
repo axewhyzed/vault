@@ -24,13 +24,13 @@ internal static class TransferEndpoints
         group.MapPost("/text", async (TextCreateRequest? request, HttpContext context, VaultDbContext db, TimeProvider clock, CancellationToken ct) =>
         {
             if (request is null) return Error(context, 400, "invalid_request", "A JSON request body is required.");
-            return await CreateAsync("text", request.Text, null, request.DisplayName, request.RetentionDays, context, db, clock, ct);
+            return await CreateAsync("text", request.Text, null, request.DisplayName, request.RetentionDays, request.RetentionHours, context, db, clock, ct);
         })
             .WithMetadata(new RequestSizeLimitAttribute(2_000_000)).WithName("CreateTextItem").WithSummary("Create a text item.").Produces<CreateItemResponse>(201).Produces<ErrorResponse>(400).Produces<ErrorResponse>(401).Produces<ErrorResponse>(403).Produces<ErrorResponse>(409).Produces<ErrorResponse>(413).Produces<ErrorResponse>(422);
         group.MapPost("/url", async (UrlCreateRequest? request, HttpContext context, VaultDbContext db, TimeProvider clock, CancellationToken ct) =>
         {
             if (request is null) return Error(context, 400, "invalid_request", "A JSON request body is required.");
-            return await CreateAsync("url", null, request.Url, request.DisplayName, request.RetentionDays, context, db, clock, ct);
+            return await CreateAsync("url", null, request.Url, request.DisplayName, request.RetentionDays, request.RetentionHours, context, db, clock, ct);
         })
             .WithMetadata(new RequestSizeLimitAttribute(2_000_000)).WithName("CreateUrlItem").WithSummary("Create a URL item without fetching it.").Produces<CreateItemResponse>(201).Produces<ErrorResponse>(400).Produces<ErrorResponse>(401).Produces<ErrorResponse>(403).Produces<ErrorResponse>(409).Produces<ErrorResponse>(413).Produces<ErrorResponse>(422);
         group.MapGet("", ListAsync).WithName("ListItems").WithSummary("List active items newest first.").Produces<ListItemsResponse>().Produces<ErrorResponse>(400).Produces<ErrorResponse>(401);
@@ -41,8 +41,8 @@ internal static class TransferEndpoints
         return endpoints;
     }
 
-    private static async Task<IResult> CreateAsync(string type, string? suppliedText, string? suppliedUrl, string? suppliedName, int? suppliedRetention,
-        HttpContext context, VaultDbContext db, TimeProvider clock, CancellationToken ct)
+    private static async Task<IResult> CreateAsync(string type, string? suppliedText, string? suppliedUrl, string? suppliedName,
+        int? suppliedRetentionDays, int? suppliedRetentionHours, HttpContext context, VaultDbContext db, TimeProvider clock, CancellationToken ct)
     {
         var userId = IdentityEndpoints.GetGuid(context.User, "userId");
         var deviceId = IdentityEndpoints.GetGuid(context.User, "deviceId");
@@ -50,8 +50,24 @@ internal static class TransferEndpoints
         if (!Guid.TryParseExact(keyText, "D", out var key) || key == Guid.Empty)
             return Error(context, 400, "invalid_idempotency_key", "Idempotency-Key must be a UUID.");
 
-        if (suppliedRetention is < 1 or > 7) return Error(context, 422, "invalid_retention", "Retention must be between 1 and 7 days.");
-        var retention = suppliedRetention ?? 7;
+        TimeSpan retentionDuration;
+        int retentionFingerprintHours;
+        if (suppliedRetentionHours is not null)
+        {
+            if (suppliedRetentionHours < 1 || suppliedRetentionHours > 168)
+                return Error(context, 422, "invalid_retention", "Retention must be between 1 and 168 hours.");
+            retentionDuration = TimeSpan.FromHours(suppliedRetentionHours.Value);
+            retentionFingerprintHours = suppliedRetentionHours.Value;
+        }
+        else
+        {
+            if (suppliedRetentionDays is < 1 or > 7)
+                return Error(context, 422, "invalid_retention", "Retention must be between 1 and 7 days.");
+            var days = suppliedRetentionDays ?? 7;
+            retentionDuration = TimeSpan.FromDays(days);
+            retentionFingerprintHours = days * 24;
+        }
+
         string content;
         string displayName;
         if (type == "text")
@@ -74,7 +90,7 @@ internal static class TransferEndpoints
         }
 
         var payloadBytes = Encoding.UTF8.GetByteCount(content);
-        var fingerprintInput = JsonSerializer.Serialize(new { type, content, resolvedDisplayName = displayName, retentionDays = retention });
+        var fingerprintInput = JsonSerializer.Serialize(new { type, content, resolvedDisplayName = displayName, retentionHours = retentionFingerprintHours });
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintInput))).ToLowerInvariant();
         var route = type == "text" ? "/api/v1/items/text" : "/api/v1/items/url";
 
@@ -100,7 +116,7 @@ internal static class TransferEndpoints
         {
             OwnerUserId = userId, CreatedByDeviceId = deviceId, Type = type, State = "available", DisplayName = displayName,
             TextContent = content, ContentType = "text/plain", SizeBytes = payloadBytes, CreatedAt = now,
-            AvailableAt = now, ExpiresAt = now.AddDays(retention), UpdatedAt = now, Version = 1
+            AvailableAt = now, ExpiresAt = now.Add(retentionDuration), UpdatedAt = now, Version = 1
         };
         var response = new CreateItemResponse(item.Id, item.Type, item.State, item.AvailableAt, item.ExpiresAt, item.Version);
         var responseJson = JsonSerializer.Serialize(response, JsonSerializerOptions.Web);
@@ -262,8 +278,8 @@ internal static class TransferEndpoints
 
     private static IResult Error(HttpContext context, int status, string code, string message) => IdentityErrors.Create(context, status, code, message);
 
-    internal sealed record TextCreateRequest(string? Text, string? DisplayName, int? RetentionDays);
-    internal sealed record UrlCreateRequest(string? Url, string? DisplayName, int? RetentionDays);
+    internal sealed record TextCreateRequest(string? Text, string? DisplayName, int? RetentionDays = null, int? RetentionHours = null);
+    internal sealed record UrlCreateRequest(string? Url, string? DisplayName, int? RetentionDays = null, int? RetentionHours = null);
     internal sealed record CreateItemResponse(Guid Id, string Type, string State, DateTime AvailableAt, DateTime ExpiresAt, int Version);
     internal sealed record SourceDevice(Guid Id, string Name, string Platform);
     internal sealed record ItemSummary(Guid Id, string Type, string State, string DisplayName, long SizeBytes, DateTime CreatedAt,

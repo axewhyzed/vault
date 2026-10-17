@@ -539,8 +539,8 @@ class MainActivity : ComponentActivity() {
                                 if (draft == null) MissingDraftScreen(Modifier.fillMaxSize())
                                 else ReviewSendScreen(
                                     draft = draft,
-                                    onSend = { retention ->
-                                        runCatching { draftQueue().send(draft.id, retention) }
+                                    onSend = { days, hours ->
+                                        runCatching { draftQueue().send(draft.id, days, hours) }
                                             .onSuccess {
                                                 reviewDraftId = null
                                                 selectedDestination = VaultDestination.SEND
@@ -554,8 +554,8 @@ class MainActivity : ComponentActivity() {
                                             }
                                             .onFailure { showStatus(it.message ?: "Could not queue this send.", NoticeTone.ERROR) }
                                     },
-                                    onEdit = { retention ->
-                                        store.saveDraft(draft.copy(retentionDays = retention))
+                                    onEdit = { days, hours ->
+                                        store.saveDraft(draft.copy(retentionDays = days, retentionHours = hours))
                                         openComposer(draft.contentKind.toComposeKind(draft.text), draft.id)
                                         refreshCounter++
                                     },

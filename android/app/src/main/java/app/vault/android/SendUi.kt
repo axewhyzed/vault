@@ -248,15 +248,23 @@ internal fun SendComposerScreen(
 @Composable
 internal fun ReviewSendScreen(
     draft: Draft,
-    onSend: (Int) -> Unit,
-    onEdit: (Int) -> Unit,
+    onSend: (retentionDays: Int, retentionHours: Int?) -> Unit,
+    onEdit: (retentionDays: Int, retentionHours: Int?) -> Unit,
     onDiscard: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var retention by remember(draft.id) { mutableIntStateOf(draft.retentionDays) }
+    var retentionDays by remember(draft.id) { mutableIntStateOf(draft.retentionDays) }
+    var retentionHours by remember(draft.id) { mutableStateOf(draft.retentionHours) }
     var retentionExpanded by remember(draft.id) { mutableStateOf(false) }
     var discardConfirm by remember(draft.id) { mutableStateOf(false) }
     val kind = draft.contentKind.toComposeKind(draft.text)
+
+    val retentionLabel = if (retentionHours != null) {
+        "$retentionHours hour${if (retentionHours == 1) "" else "s"}"
+    } else {
+        "$retentionDays day${if (retentionDays == 1) "" else "s"}"
+    }
+
     Column(modifier.fillMaxSize().imePadding()) {
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Review send", style = MaterialTheme.typography.headlineSmall)
@@ -271,22 +279,73 @@ internal fun ReviewSendScreen(
                 }
             }
             Text("Destination: ${runCatching { URI(draft.serverOrigin).host }.getOrNull() ?: draft.serverOrigin}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Box {
-                OutlinedButton(onClick = { retentionExpanded = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                    Text("Keep for $retention day${if (retention == 1) "" else "s"} · then delete")
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box {
+                    OutlinedButton(onClick = { retentionExpanded = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+                        Text("Keep for $retentionLabel · then delete")
+                    }
+                    DropdownMenu(expanded = retentionExpanded, onDismissRequest = { retentionExpanded = false }) {
+                        listOf(1, 4, 12).forEach { hours ->
+                            DropdownMenuItem(
+                                text = { Text("$hours hour${if (hours == 1) "" else "s"}") },
+                                onClick = {
+                                    retentionHours = hours
+                                    retentionExpanded = false
+                                }
+                            )
+                        }
+                        HorizontalDivider()
+                        (1..7).forEach { days ->
+                            DropdownMenuItem(
+                                text = { Text("$days day${if (days == 1) "" else "s"}") },
+                                onClick = {
+                                    retentionDays = days
+                                    retentionHours = null
+                                    retentionExpanded = false
+                                }
+                            )
+                        }
+                    }
                 }
-                DropdownMenu(expanded = retentionExpanded, onDismissRequest = { retentionExpanded = false }) {
-                    (1..7).forEach { days ->
-                        DropdownMenuItem(text = { Text("$days day${if (days == 1) "" else "s"}") }, onClick = { retention = days; retentionExpanded = false })
+
+                // Quick preset chips
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "1h" to (1 to true),
+                        "4h" to (4 to true),
+                        "12h" to (12 to true),
+                        "1d" to (1 to false),
+                        "3d" to (3 to false),
+                        "7d" to (7 to false)
+                    ).forEach { (label, config) ->
+                        val (value, isHour) = config
+                        val selected = if (isHour) retentionHours == value else (retentionHours == null && retentionDays == value)
+                        FilterChip(
+                            selected = selected,
+                            onClick = {
+                                if (isHour) {
+                                    retentionHours = value
+                                } else {
+                                    retentionDays = value
+                                    retentionHours = null
+                                }
+                            },
+                            label = { Text(label) },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
         }
         Surface(tonalElevation = 2.dp) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onSend(retention) }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Send to Vault") }
+                Button(onClick = { onSend(retentionDays, retentionHours) }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Send to Vault") }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onEdit(retention) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Edit") }
+                    OutlinedButton(onClick = { onEdit(retentionDays, retentionHours) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Edit") }
                     TextButton(onClick = { discardConfirm = true }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Discard") }
                 }
             }
@@ -302,6 +361,21 @@ internal fun ReviewSendScreen(
         )
     }
 }
+
+@Composable
+internal fun ReviewSendScreen(
+    draft: Draft,
+    onSend: (Int) -> Unit,
+    onEdit: (Int) -> Unit,
+    onDiscard: () -> Unit,
+    modifier: Modifier = Modifier,
+) = ReviewSendScreen(
+    draft = draft,
+    onSend = { days, hours -> onSend(hours ?: days) },
+    onEdit = { days, _ -> onEdit(days) },
+    onDiscard = onDiscard,
+    modifier = modifier,
+)
 
 @Composable
 internal fun ActivityScreen(

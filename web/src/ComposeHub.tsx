@@ -15,7 +15,7 @@ type Csrf = { token: string; headerName: 'X-CSRF-TOKEN' };
 type SendIntent = {
   key: string;
   kind: 'text' | 'url';
-  body: { text?: string; url?: string; displayName?: string; retentionDays: number };
+  body: { text?: string; url?: string; displayName?: string; retentionDays?: number; retentionHours?: number };
 };
 type UploadInit = { uploadId: string; uploadUrl: string; expiresAt: string; maxAcceptedBytes: number };
 type UploadResult = { uploadId: string; state: 'staged'; sizeBytes: number; sha256: string };
@@ -77,7 +77,8 @@ type Props = {
 
 export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handleApiFailure }: Props) {
   const [tab, setTab] = useState<'text' | 'url' | 'file'>('text');
-  const [retentionDays, setRetentionDays] = useState(7);
+  const [retentionValue, setRetentionValue] = useState(7);
+  const [retentionUnit, setRetentionUnit] = useState<'days' | 'hours'>('days');
 
   // Text & URL state
   const [content, setContent] = useState('');
@@ -97,7 +98,7 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const intentKeyRef = useRef<string | null>(null);
-  const intentRetentionRef = useRef<number | null>(null);
+  const intentRetentionRef = useRef<{ retentionDays?: number; retentionHours?: number } | null>(null);
   const uploadRef = useRef<UploadInit | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -155,6 +156,11 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
       }
     }
 
+    const retentionPayload =
+      retentionUnit === 'hours'
+        ? { retentionHours: retentionValue }
+        : { retentionDays: retentionValue };
+
     const intent: SendIntent =
       retryIntent ?? {
         key: crypto.randomUUID(),
@@ -162,7 +168,7 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
         body: {
           ...(tab === 'text' ? { text: content } : { url: trimmed }),
           ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
-          retentionDays,
+          ...retentionPayload,
         },
       };
 
@@ -396,7 +402,12 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
     if (!file || isUploading) return;
     const key = intentKeyRef.current ?? crypto.randomUUID();
     intentKeyRef.current = key;
-    if (intentRetentionRef.current === null) intentRetentionRef.current = retentionDays;
+    if (intentRetentionRef.current === null) {
+      intentRetentionRef.current =
+        retentionUnit === 'hours'
+          ? { retentionHours: retentionValue }
+          : { retentionDays: retentionValue };
+    }
     const generation = ++generationRef.current;
     setUploadMessage('');
     setUploadProgress(0);
@@ -431,7 +442,7 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
               displayName: displayName.trim() || file.name,
               contentType: file.type || 'application/octet-stream',
               sizeBytes: file.size,
-              retentionDays: intentRetentionRef.current,
+              ...intentRetentionRef.current,
             }),
           });
         } finally {
@@ -544,23 +555,50 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
           <h2 id="compose-hub-title">Compose</h2>
         </div>
         <div className="compose-retention-pill">
-          <label htmlFor="compose-retention">Keep:</label>
-          <div className="retention-select-wrap">
-            <select
-              id="compose-retention"
-              value={retentionDays}
+          <label htmlFor="compose-retention-val">Keep:</label>
+          <div className="retention-input-group">
+            <input
+              id="compose-retention-val"
+              type="number"
+              min={1}
+              max={retentionUnit === 'hours' ? 168 : 7}
+              value={retentionValue}
               onChange={(e) => {
-                setRetentionDays(Number(e.target.value));
+                const parsed = parseInt(e.target.value, 10);
+                const max = retentionUnit === 'hours' ? 168 : 7;
+                if (!Number.isNaN(parsed)) {
+                  setRetentionValue(Math.max(1, Math.min(parsed, max)));
+                } else {
+                  setRetentionValue(1);
+                }
                 resetSendFeedback();
               }}
               disabled={sendBusy || isUploading}
-              aria-label="Retention duration"
-            >
-              <option value={1}>1 day</option>
-              <option value={3}>3 days</option>
-              <option value={7}>7 days</option>
-            </select>
-            <ChevronDownIcon size={12} className="retention-select-chevron" />
+              className="retention-num-input"
+              aria-label="Retention amount"
+            />
+            <div className="retention-select-wrap">
+              <select
+                id="compose-retention-unit"
+                value={retentionUnit}
+                onChange={(e) => {
+                  const nextUnit = e.target.value as 'hours' | 'days';
+                  setRetentionUnit(nextUnit);
+                  if (nextUnit === 'hours' && retentionUnit === 'days') {
+                    setRetentionValue(Math.min(168, retentionValue * 24));
+                  } else if (nextUnit === 'days' && retentionUnit === 'hours') {
+                    setRetentionValue(Math.max(1, Math.min(7, Math.round(retentionValue / 24))));
+                  }
+                  resetSendFeedback();
+                }}
+                disabled={sendBusy || isUploading}
+                aria-label="Retention unit"
+              >
+                <option value="hours">hours</option>
+                <option value="days">days</option>
+              </select>
+              <ChevronDownIcon size={12} className="retention-select-chevron" />
+            </div>
           </div>
         </div>
       </div>
