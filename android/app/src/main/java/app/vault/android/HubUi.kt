@@ -98,6 +98,11 @@ internal fun HubScreen(
             try {
                 val res = api.getActiveDevices()
                 res.onSuccess { devicesList = it }
+                    .onFailure { e ->
+                        if (e is ApiFailure && (e.status == 401 || e.status == 403)) {
+                            store.clearCredentials()
+                        }
+                    }
             } finally {
                 devicesLoading = false
             }
@@ -275,8 +280,11 @@ internal fun HubScreen(
                                             res.onSuccess {
                                                 devicesList = devicesList?.filter { it.id != dev.id }
                                                 onShowMessage("Device disconnected.")
-                                            }.onFailure {
-                                                onShowMessage(it.message ?: "Could not disconnect device.")
+                                            }.onFailure { e ->
+                                                if (e is ApiFailure && (e.status == 401 || e.status == 403)) {
+                                                    store.clearCredentials()
+                                                }
+                                                onShowMessage(e.message ?: "Could not disconnect device.")
                                             }
                                         }
                                     },

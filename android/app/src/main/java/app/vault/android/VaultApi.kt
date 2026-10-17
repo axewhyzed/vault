@@ -164,10 +164,21 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
             return result.copy(state = DraftState.AVAILABLE, safeError = null)
         } catch (e: ApiFailure) {
             if (e.status == 404 || e.status == 410) throw e
+            if (e.status == 403) {
+                store.clearCredentials()
+                throw e
+            }
             if (e.status != 401) throw e
             val rotated = CredentialRefreshCoordinator.afterUnauthorized(store, draft.serverOrigin, draft.ownerUserId, current.accessToken, ::refresh)
-            val result = if (draft.text != null) uploadText(draft, rotated.accessToken) else uploadFile(draft, rotated.accessToken, onState, onProgress)
-            return result.copy(state = DraftState.AVAILABLE, safeError = null)
+            try {
+                val result = if (draft.text != null) uploadText(draft, rotated.accessToken) else uploadFile(draft, rotated.accessToken, onState, onProgress)
+                return result.copy(state = DraftState.AVAILABLE, safeError = null)
+            } catch (retryError: ApiFailure) {
+                if (retryError.status == 401 || retryError.status == 403) {
+                    store.clearCredentials()
+                }
+                throw retryError
+            }
         }
     }
 
@@ -186,7 +197,13 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
         val finalResponse = if (response.code == 401) {
             response.close()
             val rotated = CredentialRefreshCoordinator.afterUnauthorized(store, credentials.origin, credentials.userId, current.accessToken, ::refresh)
-            request(rotated.accessToken)
+            val retry = request(rotated.accessToken)
+            if (retry.code == 401 || retry.code == 403) {
+                retry.close()
+                store.clearCredentials()
+                throw ApiFailure(401, "sign_in_required", "Session expired or revoked. Pair this device again.")
+            }
+            retry
         } else response
         return finalResponse.use { res ->
             if (!res.isSuccessful) throw inboxFailure(res.code)
@@ -212,7 +229,13 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
         val finalResponse = if (response.code == 401) {
             response.close()
             val rotated = CredentialRefreshCoordinator.afterUnauthorized(store, credentials.origin, credentials.userId, current.accessToken, ::refresh)
-            request(rotated.accessToken)
+            val retry = request(rotated.accessToken)
+            if (retry.code == 401 || retry.code == 403) {
+                retry.close()
+                store.clearCredentials()
+                throw ApiFailure(401, "sign_in_required", "Session expired or revoked. Pair this device again.")
+            }
+            retry
         } else response
         return finalResponse.use { res ->
             if (!res.isSuccessful) throw inboxFailure(res.code)
@@ -236,7 +259,13 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
         return if (response.code == 401) {
             response.close()
             val rotated = CredentialRefreshCoordinator.afterUnauthorized(store, credentials.origin, credentials.userId, current.accessToken, ::refresh)
-            client.newCall(buildRequest(base, rotated.accessToken)).execute()
+            val retry = client.newCall(buildRequest(base, rotated.accessToken)).execute()
+            if (retry.code == 401 || retry.code == 403) {
+                retry.close()
+                store.clearCredentials()
+                throw ApiFailure(401, "sign_in_required", "Session expired or revoked. Pair this device again.")
+            }
+            retry
         } else {
             response
         }
@@ -313,6 +342,39 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
         }
     }
 
+    suspend fun validateSession(): Result<Boolean> = withContext(Dispatchers.IO) {
+        runCatching {
+            val credentials = store.credentials() ?: return@runCatching false
+            val res = try {
+                executeAuthedRequest { base, token ->
+                    Request.Builder()
+                        .url(base.newBuilder().addPathSegments("api/v1/auth/me").build())
+                        .header("Accept", "application/json")
+                        .header("Cache-Control", "no-store")
+                        .header("Authorization", "Bearer $token")
+                        .get()
+                        .build()
+                }
+            } catch (e: ApiFailure) {
+                if (e.status == 401 || e.status == 403) {
+                    store.clearCredentials()
+                    return@runCatching false
+                }
+                throw e
+            } catch (_: IOException) {
+                return@runCatching true
+            }
+            res.use { response ->
+                if (response.code == 401 || response.code == 403) {
+                    store.clearCredentials()
+                    false
+                } else {
+                    response.isSuccessful
+                }
+            }
+        }
+    }
+
     fun downloadToTemp(detail: InboxDetail, onProgress: (Long) -> Unit = {}): File {
         val itemId = canonicalUuid(detail.id) ?: throw ApiFailure(400, "invalid_item_id", "This inbox item could not be downloaded.")
         if (detail.type != "file" || detail.downloadUrl != "/api/v1/items/$itemId/download" || detail.sizeBytes !in 0..MAX_INBOX_FILE_BYTES ||
@@ -333,7 +395,13 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
         val finalResponse = if (response.code == 401) {
             response.close()
             val rotated = CredentialRefreshCoordinator.afterUnauthorized(store, detail.ownerOrigin, detail.ownerUserId, current.accessToken, ::refresh)
-            request(rotated.accessToken)
+            val retry = request(rotated.accessToken)
+            if (retry.code == 401 || retry.code == 403) {
+                retry.close()
+                store.clearCredentials()
+                throw ApiFailure(401, "sign_in_required", "Session expired or revoked. Pair this device again.")
+            }
+            retry
         } else response
         val temp = try { File.createTempFile("vault-inbox-", ".part", File(System.getProperty("java.io.tmpdir") ?: ".")) }
         catch (_: IOException) { throw ApiFailure(503, "download_storage_unavailable", "There is not enough private storage to download this file.") }
@@ -395,12 +463,17 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
 
     private fun canonicalUuid(value: String): String? = try { UUID.fromString(value).toString().takeIf { it.equals(value, true) } } catch (_: Exception) { null }
 
-    private fun inboxFailure(status: Int): ApiFailure = when (status) {
-        401, 403 -> ApiFailure(401, "sign_in_required", "Session expired or revoked. Pair this device again.")
-        404 -> ApiFailure(404, "item_not_found", "This inbox item was not found.")
-        410 -> ApiFailure(410, "item_expired", "This inbox item has expired.")
-        503 -> ApiFailure(503, "service_unavailable", "Vault is temporarily unavailable. Try again shortly.")
-        else -> ApiFailure(status, "inbox_request_failed", "The inbox request could not be completed.")
+    private fun inboxFailure(status: Int): ApiFailure {
+        if (status == 401 || status == 403) {
+            store.clearCredentials()
+            return ApiFailure(401, "sign_in_required", "Session expired or revoked. Pair this device again.")
+        }
+        return when (status) {
+            404 -> ApiFailure(404, "item_not_found", "This inbox item was not found.")
+            410 -> ApiFailure(410, "item_expired", "This inbox item has expired.")
+            503 -> ApiFailure(503, "service_unavailable", "Vault is temporarily unavailable. Try again shortly.")
+            else -> ApiFailure(status, "inbox_request_failed", "The inbox request could not be completed.")
+        }
     }
 
     private fun malformedInbox() = ApiFailure(502, "invalid_inbox_response", "Vault returned an invalid inbox response.")

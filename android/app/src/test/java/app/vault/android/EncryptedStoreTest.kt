@@ -174,4 +174,26 @@ class EncryptedStoreTest {
         assertFalse(store.hasSpool("spool-2"))
         assertNull(store.cachedInbox())
     }
+
+    @Test fun expiredRefreshTokenReturnsNullAndClearsCredentials() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val testKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+        val store = EncryptedStore(context, VaultCrypto(testKey))
+        // Set refresh expiry in the past
+        store.saveCredentials(Credentials("https://vault.example", "va1_access", "2020-01-01T00:00:00Z", "vr1_token", "2020-01-14T00:00:00Z", "user", "device"))
+        assertNull(store.credentials())
+        assertFalse(java.io.File(context.filesDir, "vault-private/credentials.bin").exists())
+    }
+
+    @Test fun authRevisionIncrementsOnSaveAndClearCredentials() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val testKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+        val store = EncryptedStore(context, VaultCrypto(testKey))
+        val initialEpoch = EncryptedStore.authRevision.value
+        store.saveCredentials(Credentials("https://vault.example", "va1_access", "2099-01-01T00:00:00Z", "vr1_token", "2099-02-01T00:00:00Z", "user", "device"))
+        assertTrue(EncryptedStore.authRevision.value > initialEpoch)
+        val afterSave = EncryptedStore.authRevision.value
+        store.clearCredentials()
+        assertTrue(EncryptedStore.authRevision.value > afterSave)
+    }
 }

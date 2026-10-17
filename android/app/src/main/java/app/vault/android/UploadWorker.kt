@@ -59,6 +59,9 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             throw e
         } catch (e: ApiFailure) {
             val shouldRetry = e.status == 429 || e.status >= 500
+            if (e.status == 401 || e.status == 403) {
+                store.clearCredentials()
+            }
             val latest = store.draft(id) ?: draft
             store.saveDraft(latest.copy(state = if (shouldRetry) DraftState.RETRYING else DraftState.FAILED, safeError = e.message ?: "Upload failed."))
             if (shouldRetry) Result.retry() else Result.failure()

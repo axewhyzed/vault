@@ -343,6 +343,9 @@ internal fun InboxTab(
                 }
             }
         } catch (e: Exception) {
+            if (e is ApiFailure && (e.status == 401 || e.status == 403)) {
+                store.clearCredentials()
+            }
             if (epoch == requestEpoch && ownerStillCurrent()) {
                 pageError = e.safeInboxMessage()
                 pageRetryReset = reset
@@ -370,6 +373,9 @@ internal fun InboxTab(
             val value = withContext(Dispatchers.IO) { api.getItem(id) }
             if (epoch == detailEpoch && ownerStillCurrent()) selected = value
         } catch (e: Exception) {
+            if (e is ApiFailure && (e.status == 401 || e.status == 403)) {
+                store.clearCredentials()
+            }
             if (epoch == detailEpoch && ownerStillCurrent()) detailError = e.safeInboxMessage()
         } finally {
             if (epoch == detailEpoch) detailLoading = false
@@ -601,6 +607,9 @@ internal fun InboxTab(
                                 downloadFile?.delete()
                                 downloadFile = null
                             }.onFailure { e ->
+                                if (e is ApiFailure && (e.status == 401 || e.status == 403)) {
+                                    store.clearCredentials()
+                                }
                                 showOperationMessage((e as? Exception)?.safeInboxMessage() ?: "Could not delete item.", isError = true)
                             }
                         }
@@ -754,6 +763,9 @@ internal fun InboxTab(
                                             store.saveInboxCache(CachedInbox(ownerKey, System.currentTimeMillis(), rows, nextCursor, updatedQuota))
                                             showOperationMessage("Item deleted.")
                                         }.onFailure { e ->
+                                            if (e is ApiFailure && (e.status == 401 || e.status == 403)) {
+                                                store.clearCredentials()
+                                            }
                                             showOperationMessage((e as? Exception)?.safeInboxMessage() ?: "Could not delete item.", isError = true)
                                         }
                                     }

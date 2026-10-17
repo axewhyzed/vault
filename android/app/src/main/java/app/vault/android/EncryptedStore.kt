@@ -9,6 +9,11 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.time.Instant
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 data class Credentials(val origin: String, val accessToken: String, val accessExpiry: String, val refreshToken: String, val refreshExpiry: String, val userId: String, val deviceId: String)
 
@@ -53,20 +58,37 @@ class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCr
 
     val defaultDownloadFolderUri: String? get() = defaultDownloadUri()
 
-    @Synchronized fun saveCredentials(value: Credentials) = writeEncrypted(credentialFile, JSONObject().apply {
-        put("origin", value.origin); put("accessToken", value.accessToken); put("accessExpiry", value.accessExpiry)
-        put("refreshToken", value.refreshToken); put("refreshExpiry", value.refreshExpiry); put("userId", value.userId); put("deviceId", value.deviceId)
-    }.toString().toByteArray())
+    @Synchronized fun saveCredentials(value: Credentials) {
+        writeEncrypted(credentialFile, JSONObject().apply {
+            put("origin", value.origin); put("accessToken", value.accessToken); put("accessExpiry", value.accessExpiry)
+            put("refreshToken", value.refreshToken); put("refreshExpiry", value.refreshExpiry); put("userId", value.userId); put("deviceId", value.deviceId)
+        }.toString().toByteArray())
+        notifyAuthChanged()
+    }
+
     @Synchronized fun credentials(): Credentials? {
         if (!credentialFile.exists()) return null
         return try { JSONObject(crypto.decrypt(credentialFile.readBytes()).toString(Charsets.UTF_8)).let {
-            Credentials(it.getString("origin"), it.getString("accessToken"), it.getString("accessExpiry"), it.getString("refreshToken"), it.getString("refreshExpiry"), it.getString("userId"), it.getString("deviceId"))
+            val c = Credentials(it.getString("origin"), it.getString("accessToken"), it.getString("accessExpiry"), it.getString("refreshToken"), it.getString("refreshExpiry"), it.getString("userId"), it.getString("deviceId"))
+            if (isRefreshExpired(c.refreshExpiry)) {
+                clearCredentials()
+                null
+            } else {
+                c
+            }
         } } catch (_: Exception) { null }
     }
+
     @Synchronized fun clearCredentials() {
         credentialFile.delete()
         clearInboxCache()
+        notifyAuthChanged()
     }
+
+    private fun isRefreshExpired(expiry: String): Boolean = runCatching {
+        val expiresAt = Instant.parse(expiry)
+        !Instant.now().isBefore(expiresAt)
+    }.getOrDefault(false)
     fun saveDraft(draft: Draft) = writeEncrypted(draftFile(draft.id), draft.json().toString().toByteArray())
     fun draft(id: String): Draft? = try { Draft.from(JSONObject(crypto.decrypt(draftFile(id).readBytes()).toString(Charsets.UTF_8))) } catch (_: Exception) { null }
     @Synchronized fun allDrafts(): List<Draft> {
@@ -199,4 +221,13 @@ class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCr
     }
     private fun draftFile(id: String) = File(drafts, "$id.draft")
     private fun spoolFile(name: String) = File(blobs, "$name.enc")
+
+    companion object {
+        private val _authRevision = MutableStateFlow(0L)
+        val authRevision: StateFlow<Long> = _authRevision.asStateFlow()
+
+        fun notifyAuthChanged() {
+            _authRevision.update { it + 1 }
+        }
+    }
 }
