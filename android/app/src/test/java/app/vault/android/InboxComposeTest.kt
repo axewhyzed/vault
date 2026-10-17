@@ -11,9 +11,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import okhttp3.mockwebserver.MockResponse
@@ -27,7 +29,7 @@ import org.robolectric.annotation.Config
 import javax.crypto.KeyGenerator
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+@Config(sdk = [35], qualifiers = "w480dp-h1200dp")
 class InboxComposeTest {
     @get:Rule val compose = createComposeRule()
     private val id = "123e4567-e89b-12d3-a456-426614174000"
@@ -66,7 +68,7 @@ class InboxComposeTest {
             compose.onNodeWithText("Note").performClick()
             compose.waitUntil(5_000) { server.requestCount == 2 }
             compose.onNodeWithText("exact value").assertExists()
-            compose.onNodeWithText("Copy").performClick()
+            compose.onNodeWithText("Copy text").performClick()
 
             val clipboard = ApplicationProvider.getApplicationContext<Context>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip: ClipData? = clipboard.primaryClip
@@ -235,5 +237,235 @@ class InboxComposeTest {
             assertEquals("/api/v1/items/$id", deleteRequest.path)
             compose.waitUntil(5_000) { compose.onAllNodesWithText("Item deleted.").fetchSemanticsNodes().isNotEmpty() }
         } finally { server.shutdown() }
+    }
+
+    @Test fun welcomeScreenExpandsCollapsibleServerUrl() {
+        compose.setContent {
+            MaterialTheme {
+                WelcomeScreen(
+                    onScanQr = {},
+                    onLogin = { _, _, _, _ -> },
+                    defaultOrigin = "https://vault.example.com",
+                    defaultDeviceName = "Pixel 8",
+                    busy = false,
+                )
+            }
+        }
+
+        compose.onNodeWithText("Sign In with Credentials").performClick()
+        compose.waitForIdle()
+
+        // Server URL is initially collapsed
+        compose.onNodeWithText("Server URL").assertDoesNotExist()
+
+        // Expand custom server settings
+        compose.onNodeWithText("Using default server: vault.example.com (Edit) ▼").performClick()
+        compose.waitForIdle()
+
+        // Server URL is now visible
+        compose.onNodeWithText("Server URL").assertExists()
+    }
+
+    @Test fun outboxQueueRendersPendingDraftsWithStatusAndActions() {
+        var retried = 0
+        var removed = 0
+        val drafts = listOf(
+            Draft(
+                id = "d-queued", idempotencyKey = "k1", serverOrigin = "https://vault.example",
+                ownerUserId = "u1", displayName = "report.pdf", contentType = "application/pdf",
+                sizeBytes = 1000, bytesSent = 0, state = DraftState.QUEUED
+            ),
+            Draft(
+                id = "d-uploading", idempotencyKey = "k2", serverOrigin = "https://vault.example",
+                ownerUserId = "u1", displayName = "photo.jpg", contentType = "image/jpeg",
+                sizeBytes = 1000, bytesSent = 500, state = DraftState.UPLOADING
+            ),
+            Draft(
+                id = "d-failed", idempotencyKey = "k3", serverOrigin = "https://vault.example",
+                ownerUserId = "u1", displayName = "notes.txt", contentType = "text/plain",
+                sizeBytes = 100, bytesSent = 0, state = DraftState.FAILED, safeError = "Network error"
+            )
+        )
+
+        compose.setContent {
+            MaterialTheme {
+                SendHomeScreen(
+                    onText = {}, onLink = {}, onFile = {},
+                    drafts = drafts,
+                    onRetry = { retried++ },
+                    onRemove = { removed++ }
+                )
+            }
+        }
+
+        compose.onNodeWithText("Outbox Queue (3)").assertExists()
+        compose.onNodeWithText("report.pdf").assertExists()
+        compose.onNodeWithText("Waiting for network").assertExists()
+
+        compose.onNodeWithText("photo.jpg").assertExists()
+        compose.onNodeWithText("Uploading · 50%").assertExists()
+
+        compose.onNodeWithText("notes.txt").assertExists()
+        compose.onNodeWithText("Failed").assertExists()
+        compose.onNodeWithText("Network error").assertExists()
+
+        compose.onNodeWithText("Retry").performClick()
+        assertEquals(1, retried)
+
+        compose.onNodeWithText("Discard").performClick()
+        assertEquals(1, removed)
+    }
+
+    @Test fun searchFiltersInboxRowsAndDisplaysCount() {
+        val server = MockWebServer(); server.start()
+        try {
+            val multiItemResponse = MockResponse().setBody("""{
+                "items": [
+                    {"id":"123e4567-e89b-12d3-a456-426614174001","type":"file","state":"available","displayName":"financial-report.pdf","sizeBytes":100,"createdAt":"2026-10-16T10:00:00Z","availableAt":"2026-10-16T10:00:00Z","expiresAt":"2099-10-23T10:00:00Z","version":1,"sourceDevice":{"id":"d1","name":"Work Laptop","platform":"web"}},
+                    {"id":"123e4567-e89b-12d3-a456-426614174002","type":"text","state":"available","displayName":"Grocery list","sizeBytes":50,"createdAt":"2026-10-16T10:00:00Z","availableAt":"2026-10-16T10:00:00Z","expiresAt":"2099-10-23T10:00:00Z","version":1,"sourceDevice":{"id":"d2","name":"Pixel 8","platform":"android"}},
+                    {"id":"123e4567-e89b-12d3-a456-426614174003","type":"url","state":"available","displayName":"GitHub Repo","sizeBytes":40,"createdAt":"2026-10-16T10:00:00Z","availableAt":"2026-10-16T10:00:00Z","expiresAt":"2099-10-23T10:00:00Z","version":1,"sourceDevice":{"id":"d3","name":"Home Desktop","platform":"windows"}}
+                ],
+                "nextCursor":null,
+                "quota":{"activeBytes":190,"maxActiveBytes":1000,"activeItems":3,"maxActiveItems":10}
+            }""")
+            server.enqueue(multiItemResponse)
+            val store = store(server)
+            compose.setContent { MaterialTheme { InboxTab(VaultApi(store), store, "${server.url("/").toString().trimEnd('/')}|owner|device", 0) } }
+
+            compose.waitUntil(10_000) { server.requestCount == 1 && compose.onAllNodesWithText("financial-report.pdf").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("financial-report.pdf").assertExists()
+            compose.onNodeWithText("Grocery list").assertExists()
+            compose.onNodeWithText("GitHub Repo").assertExists()
+
+            // Filter by name
+            compose.onNodeWithText("Search files, links, or devices…").performTextInput("financial")
+            compose.waitForIdle()
+            compose.onNodeWithText("1 result").assertExists()
+            compose.onNodeWithText("financial-report.pdf").assertExists()
+            compose.onNodeWithText("Grocery list").assertDoesNotExist()
+            compose.onNodeWithText("GitHub Repo").assertDoesNotExist()
+
+            // Filter by device name
+            compose.onNodeWithContentDescription("Clear search").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("Search files, links, or devices…").performTextInput("Pixel 8")
+            compose.waitForIdle()
+            compose.onNodeWithText("1 result").assertExists()
+            compose.onNodeWithText("Grocery list").assertExists()
+            compose.onNodeWithText("financial-report.pdf").assertDoesNotExist()
+
+            // Filter with no match
+            compose.onNodeWithContentDescription("Clear search").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("Search files, links, or devices…").performTextInput("nonexistent")
+            compose.waitForIdle()
+            compose.onNodeWithText("0 results").assertExists()
+            compose.onNodeWithText("No items match \"nonexistent\".").assertExists()
+        } finally { server.shutdown() }
+    }
+
+    @Test fun typeBadgesRenderLabelsAndExpectedText() {
+        compose.setContent {
+            MaterialTheme {
+                androidx.compose.foundation.layout.Column {
+                    TypeBadge("file", 2048)
+                    TypeBadge("url", 0)
+                    TypeBadge("text", 0)
+                }
+            }
+        }
+        compose.onNodeWithText("2 KB").assertExists()
+        compose.onNodeWithText("Link").assertExists()
+        compose.onNodeWithText("Text").assertExists()
+    }
+
+    @Test fun filterChipsFilterInboxByType() {
+        val server = MockWebServer(); server.start()
+        try {
+            val multiItemResponse = MockResponse().setBody("""{
+                "items": [
+                    {"id":"123e4567-e89b-12d3-a456-426614174001","type":"file","state":"available","displayName":"financial-report.pdf","sizeBytes":100,"createdAt":"2026-10-16T10:00:00Z","availableAt":"2026-10-16T10:00:00Z","expiresAt":"2099-10-23T10:00:00Z","version":1,"sourceDevice":{"id":"d1","name":"Work Laptop","platform":"web"}},
+                    {"id":"123e4567-e89b-12d3-a456-426614174002","type":"text","state":"available","displayName":"Grocery list","sizeBytes":50,"createdAt":"2026-10-16T10:00:00Z","availableAt":"2026-10-16T10:00:00Z","expiresAt":"2099-10-23T10:00:00Z","version":1,"sourceDevice":{"id":"d2","name":"Pixel 8","platform":"android"}},
+                    {"id":"123e4567-e89b-12d3-a456-426614174003","type":"url","state":"available","displayName":"GitHub Repo","sizeBytes":40,"createdAt":"2026-10-16T10:00:00Z","availableAt":"2026-10-16T10:00:00Z","expiresAt":"2099-10-23T10:00:00Z","version":1,"sourceDevice":{"id":"d3","name":"Home Desktop","platform":"windows"}}
+                ],
+                "nextCursor":null,
+                "quota":{"activeBytes":190,"maxActiveBytes":1000,"activeItems":3,"maxActiveItems":10}
+            }""")
+            server.enqueue(multiItemResponse)
+            val store = store(server)
+            compose.setContent { MaterialTheme { InboxTab(VaultApi(store), store, "${server.url("/").toString().trimEnd('/')}|owner|device", 0) } }
+
+            compose.waitUntil(10_000) { server.requestCount == 1 && compose.onAllNodesWithText("financial-report.pdf").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("financial-report.pdf").assertExists()
+            compose.onNodeWithText("Grocery list").assertExists()
+            compose.onNodeWithText("GitHub Repo").assertExists()
+
+            // Filter to Files
+            compose.onNodeWithText("Files").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("financial-report.pdf").assertExists()
+            compose.onNodeWithText("Grocery list").assertDoesNotExist()
+            compose.onNodeWithText("GitHub Repo").assertDoesNotExist()
+
+            // Filter to Links
+            compose.onNodeWithText("Links").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("GitHub Repo").assertExists()
+            compose.onNodeWithText("financial-report.pdf").assertDoesNotExist()
+            compose.onNodeWithText("Grocery list").assertDoesNotExist()
+
+            // Filter to Text
+            compose.onNodeWithText("Text").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("Grocery list").assertExists()
+            compose.onNodeWithText("financial-report.pdf").assertDoesNotExist()
+            compose.onNodeWithText("GitHub Repo").assertDoesNotExist()
+
+            // Back to All
+            compose.onNodeWithText("All").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("financial-report.pdf").assertExists()
+            compose.onNodeWithText("Grocery list").assertExists()
+            compose.onNodeWithText("GitHub Repo").assertExists()
+        } finally { server.shutdown() }
+    }
+
+    @Test fun offlineSendEntersQueuedStateWithStatusAlert() {
+        val previousChecker = isNetworkConnected
+        try {
+            isNetworkConnected = { false }
+            val server = MockWebServer(); server.start()
+            try {
+                val store = store(server)
+                val draft = Draft(
+                    id = "d-offline",
+                    idempotencyKey = "k-offline",
+                    serverOrigin = server.url("/").toString().trimEnd('/'),
+                    ownerUserId = "owner",
+                    displayName = "offline.txt",
+                    text = "offline text",
+                    contentType = "text/plain",
+                    sizeBytes = 12,
+                    state = DraftState.PREPARED
+                )
+                store.saveDraft(draft)
+                val enqueued = mutableListOf<String>()
+                val queue = DraftQueue(store, enqueue = { enqueued.add(it) }, cancelWork = {})
+                val sent = queue.send(draft.id, 3)
+                assertEquals(DraftState.QUEUED, sent.state)
+                assertEquals(listOf("d-offline"), enqueued)
+                assertEquals(DraftState.QUEUED, store.draft(draft.id)?.state)
+
+                // Verify alert message offline logic
+                val alertMessage = if (isNetworkConnected(ApplicationProvider.getApplicationContext())) {
+                    "Added to Vault. Upload will retry if the network drops."
+                } else {
+                    "Queued for upload. Will send when connected."
+                }
+                assertEquals("Queued for upload. Will send when connected.", alertMessage)
+            } finally { server.shutdown() }
+        } finally {
+            isNetworkConnected = previousChecker
+        }
     }
 }

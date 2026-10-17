@@ -1,5 +1,7 @@
 package app.vault.android
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -172,6 +174,10 @@ private fun SignInBottomSheetContent(
     var password by remember { mutableStateOf("") }
     var deviceName by remember { mutableStateOf(defaultDeviceName) }
     var passwordVisible by remember { mutableStateOf(false) }
+    var showAdvancedServer by remember { mutableStateOf(false) }
+
+    val defaultHost = runCatching { java.net.URI(defaultOrigin).host }.getOrNull() ?: defaultOrigin
+    val currentHost = runCatching { java.net.URI(serverOrigin).host }.getOrNull() ?: serverOrigin
 
     Column(
         modifier = Modifier
@@ -179,7 +185,8 @@ private fun SignInBottomSheetContent(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
             .padding(bottom = 36.dp, top = 8.dp)
-            .imePadding(),
+            .imePadding()
+            .animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text(
@@ -190,16 +197,6 @@ private fun SignInBottomSheetContent(
             text = "Authenticate directly using your Vault account credentials.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        OutlinedTextField(
-            value = serverOrigin,
-            onValueChange = { serverOrigin = it },
-            label = { Text("Server URL") },
-            placeholder = { Text("https://vault.example.com") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !busy,
         )
 
         OutlinedTextField(
@@ -229,16 +226,7 @@ private fun SignInBottomSheetContent(
             enabled = !busy,
         )
 
-        OutlinedTextField(
-            value = deviceName,
-            onValueChange = { deviceName = it.take(100) },
-            label = { Text("Device Name") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !busy,
-        )
-
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Button(
             onClick = {
@@ -258,6 +246,45 @@ private fun SignInBottomSheetContent(
                 )
             } else {
                 Text("Sign In", style = MaterialTheme.typography.titleMedium)
+            }
+        }
+
+        TextButton(
+            onClick = { showAdvancedServer = !showAdvancedServer },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            val label = if (!showAdvancedServer) {
+                if (serverOrigin == defaultOrigin) "Using default server: $defaultHost (Edit) ▼"
+                else "Using custom server: $currentHost (Edit) ▼"
+            } else {
+                "Hide custom server settings ▲"
+            }
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        AnimatedVisibility(visible = showAdvancedServer) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                OutlinedTextField(
+                    value = serverOrigin,
+                    onValueChange = { serverOrigin = it },
+                    label = { Text("Server URL") },
+                    placeholder = { Text("https://vault.example.com") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                )
+
+                OutlinedTextField(
+                    value = deviceName,
+                    onValueChange = { deviceName = it.take(100) },
+                    label = { Text("Device Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                )
             }
         }
     }

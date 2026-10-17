@@ -1,5 +1,9 @@
 package app.vault.android
 
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -14,6 +18,7 @@ import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
@@ -24,9 +29,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,10 +49,26 @@ internal fun HubScreen(
     onShowMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var pingLatencyMs by remember { mutableStateOf<Long?>(null) }
     var pinging by remember { mutableStateOf(false) }
     var spoolBytes by remember { mutableLongStateOf(store.spoolSize()) }
+    var defaultDownloadUri by remember { mutableStateOf(store.defaultDownloadUri()) }
+
+    val chooseFolderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+            store.saveDefaultDownloadUri(uri.toString())
+            defaultDownloadUri = uri.toString()
+            onShowMessage("Default download location updated.")
+        }
+    }
 
     val cached = remember { store.cachedInbox() }
     val items = cached?.items ?: emptyList()
@@ -331,7 +354,84 @@ internal fun HubScreen(
             }
         }
 
-        // 5. Account Controls
+        // 5. Default Download Location
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Folder,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = "Default Download Location",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    )
+                }
+
+                if (defaultDownloadUri != null) {
+                    val folderDoc = remember(defaultDownloadUri) {
+                        defaultDownloadUri?.let { Uri.parse(it) }?.let { DocumentFile.fromTreeUri(context, it) }
+                    }
+                    val folderName = folderDoc?.name ?: "Selected folder"
+
+                    Text(
+                        text = "Folder: $folderName",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "Vault saves file attachments directly to this folder without asking each time.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            onClick = { chooseFolderLauncher.launch(defaultDownloadUri?.let { Uri.parse(it) }) },
+                            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                        ) {
+                            Text("Change Folder")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                store.saveDefaultDownloadUri(null)
+                                defaultDownloadUri = null
+                                onShowMessage("Reset to prompt every time.")
+                            },
+                            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                        ) {
+                            Text("Reset to Prompt")
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "Currently prompts for location each time you download an attachment.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = { chooseFolderLauncher.launch(null) },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) {
+                        Icon(Icons.Filled.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Choose Default Folder")
+                    }
+                }
+            }
+        }
+
+        // 6. Account Controls
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp),

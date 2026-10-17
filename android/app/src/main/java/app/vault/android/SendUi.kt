@@ -5,13 +5,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.net.URI
@@ -24,9 +28,25 @@ internal fun SendHomeScreen(
     onLink: () -> Unit,
     onFile: () -> Unit,
     serverOrigin: String? = null,
+    drafts: List<Draft> = emptyList(),
+    onReview: (String) -> Unit = {},
+    onRetry: (Draft) -> Unit = {},
+    onRemove: (Draft) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val pendingDrafts = remember(drafts) {
+        drafts.filter { it.state != DraftState.AVAILABLE }
+    }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (pendingDrafts.isNotEmpty()) {
+            OutboxQueueCard(
+                pendingDrafts = pendingDrafts,
+                onReview = onReview,
+                onRetry = onRetry,
+                onDiscard = onRemove,
+            )
+        }
+
         Text("Move something between Vault on this phone and your PC.", style = MaterialTheme.typography.bodyLarge)
         serverOrigin?.let { origin ->
             val host = runCatching { URI(origin).host }.getOrNull() ?: origin
@@ -38,6 +58,120 @@ internal fun SendHomeScreen(
         SendChoiceCard("Link", "Send a web address", onLink)
         SendChoiceCard("File", "Choose a photo or document", onFile)
         Text("You’ll review each item before it is sent. Your paired devices use the same Vault inbox.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun OutboxQueueCard(
+    pendingDrafts: List<Draft>,
+    onReview: (String) -> Unit,
+    onRetry: (Draft) -> Unit,
+    onDiscard: (Draft) -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Outbox Queue (${pendingDrafts.size})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            pendingDrafts.forEachIndexed { index, draft ->
+                if (index > 0) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                }
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = draft.displayName,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    when (draft.state) {
+                        DraftState.QUEUED, DraftState.RETRYING -> {
+                            Text(
+                                text = "Waiting for network",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        DraftState.UPLOADING -> {
+                            val pct = percentSent(draft)
+                            Text(
+                                text = "Uploading · $pct%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                            if (draft.sizeBytes > 0) {
+                                LinearProgressIndicator(
+                                    progress = { (draft.bytesSent.toFloat() / draft.sizeBytes).coerceIn(0f, 1f) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                )
+                            }
+                        }
+                        DraftState.FAILED -> {
+                            Text(
+                                text = "Failed",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Medium
+                            )
+                            draft.safeError?.let {
+                                Text(
+                                    text = it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { onRetry(draft) },
+                                    modifier = Modifier.heightIn(min = 40.dp)
+                                ) {
+                                    Text("Retry")
+                                }
+                                OutlinedButton(
+                                    onClick = { onDiscard(draft) },
+                                    modifier = Modifier.heightIn(min = 40.dp)
+                                ) {
+                                    Text("Discard")
+                                }
+                            }
+                        }
+                        DraftState.PREPARED -> {
+                            Text(
+                                text = "Ready to review",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            Button(
+                                onClick = { onReview(draft.id) },
+                                modifier = Modifier.heightIn(min = 40.dp)
+                            ) {
+                                Text("Review send")
+                            }
+                        }
+                        DraftState.AVAILABLE -> {}
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -197,7 +331,7 @@ internal fun ActivityScreen(
 }
 
 @Composable
-private fun ActivityRow(draft: Draft, onReview: () -> Unit, onRetry: () -> Unit, onRemove: () -> Unit) {
+internal fun ActivityRow(draft: Draft, onReview: () -> Unit = {}, onRetry: () -> Unit = {}, onRemove: () -> Unit = {}) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(draft.displayName, style = MaterialTheme.typography.titleMedium)

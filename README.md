@@ -95,12 +95,15 @@ Effortlessly transfer text snippets, URLs, and files up to 100 MB directly into 
 - ⚡ **Zero-Waste Web Architecture:** Completely eliminated giant hero banners. The 56px topbar integrates a live storage pill meter (`14 MB / 2 GB`), quick-action pairing modal, theme switcher, and an accessible user menu.
 - 🚀 **Unified Compose Hub:** Send snippets, links, or files from a single segmented tab container with drag-and-drop staging, live UTF-8 byte counting, and configurable retention (1, 3, or 7 days).
 - 📱 **Native Android Client (Material 3):**
-  - **Direct Authentication:** Scan a QR code or sign in directly with username and password—no tedious URL copying.
+  - **Direct Authentication:** Scan a QR code or sign in directly with username and password with a collapsible server URL—zero URL typing for standard logins.
   - **14-Day Sliding Sessions:** Sessions persist seamlessly with automatic token sliding window on active app usage (auto-logout after 14 days of inactivity).
-  - **Zero-Skeleton SWR Caching:** Local SQLite & encrypted storage caches inbox rows for 10+ minutes, eliminating blank screen flashes on tab navigation.
+  - **Visible Outbox & Offline Spooling:** Items shared or composed while offline stay safely queued in local encrypted storage with live status indicators and automatically send as soon as internet connectivity returns.
+  - **Smart One-Tap Actions:** Open URLs directly in your browser or copy links with one tap; copy text snippets instantly; download files straight into your custom default download directory with a completion Toast; or open files directly via the native Android system resolver.
+  - **Search Received Files:** Instant client-side search bar on the Android inbox to search through received files, links, and snippets by name, type, or device.
+  - **Zero-Skeleton SWR Caching:** Local encrypted storage caches inbox rows for 10+ minutes, eliminating blank screen flashes on tab navigation.
   - **Full Item Management:** Delete items directly from Android with confirmation dialogs or rapid swipe-to-dismiss.
-  - **Vault Hub:** Replaces redundant activity tabs with real-time server latency ping, connected device tracking, local spool cleaner, and a confirmed Danger Zone.
-- 🔍 **Instant Search & Type Filtering:** Filter items instantly by type (`Files`, `Links`, `Text`) or execute real-time keyword search via `/` or `⌘K`.
+  - **Vault Hub:** Replaces redundant activity tabs with real-time server latency ping, connected device tracking, default download directory picker, local spool cleaner, and a confirmed Danger Zone.
+- 🔍 **Instant Search & Type Filtering:** Filter items instantly by type (`Files`, `Links`, `Text`) or execute real-time keyword search via `/` or `⌘K` on web and the search bar on Android.
 - 📦 **100 MB Direct Streaming:** Stream large attachments directly into isolated disk volumes with SHA-256 integrity verification—bypassing database bloat.
 - 🛡️ **Granular vs. Global Revocation:** Log out of your current device cleanly, or trigger a global session revocation from the confirmed security modal.
 
@@ -168,11 +171,11 @@ To shut down and retain data: `docker compose down`. To purge all data and keys:
 ### 1. Download & Install APK
 Download the signed build from [GitHub Releases](https://github.com/axewhyzed/vault/releases):
 
-👉 **[Download vault-debug-v0.2.0.apk](https://github.com/axewhyzed/vault/releases)**
+👉 **[Download vault-debug-v0.3.0.apk](https://github.com/axewhyzed/vault/releases)**
 
 Or install directly via ADB:
 ```powershell
-adb install -r vault-debug-v0.2.0.apk
+adb install -r vault-debug-v0.3.0.apk
 ```
 
 ### 2. Pair or Sign In in Seconds
