@@ -137,11 +137,19 @@ public sealed class IdentitySecurityTests
         using var me1 = await client1.GetAsync("/api/v1/auth/me");
         Assert.Equal(HttpStatusCode.OK, me1.StatusCode);
         var signedIn1 = await me1.Content.ReadFromJsonAsync<AccountResponse>();
+        Assert.Null(account1.Username);
+        Assert.Null(signedIn1!.Username);
         Assert.Equal(account1, signedIn1);
 
         using var client2 = host.CreateClient();
         var csrf2 = await GetCsrfAsync(client2);
         var account2 = await LoginAsync(host, client2, TestApiHost.Username2, Password2, csrf2.Token);
+        Assert.Equal(TestApiHost.Username2, account2.Username);
+        using var me2 = await client2.GetAsync("/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.OK, me2.StatusCode);
+        var signedIn2 = await me2.Content.ReadFromJsonAsync<AccountResponse>();
+        Assert.Equal(TestApiHost.Username2, signedIn2!.Username);
+        Assert.Equal(account2, signedIn2);
         Assert.NotEqual(account1.UserId, account2.UserId);
         Assert.NotEqual(account1.DeviceId, account2.DeviceId);
         using var me1AfterSecondLogin = await client1.GetAsync("/api/v1/auth/me");
@@ -192,13 +200,17 @@ public sealed class IdentitySecurityTests
 
         using var legacyEmailResponse = await SendLegacyEmailLoginAsync(emailClient, TestApiHost.Email1, Password1, emailCsrf.Token);
         Assert.Equal(HttpStatusCode.OK, legacyEmailResponse.StatusCode);
-        Assert.Equal(TestApiHost.Email1, (await legacyEmailResponse.Content.ReadFromJsonAsync<AccountResponse>())!.Email);
+        var legacyAccount = await legacyEmailResponse.Content.ReadFromJsonAsync<AccountResponse>();
+        Assert.Equal(TestApiHost.Email1, legacyAccount!.Email);
+        Assert.Null(legacyAccount.Username);
 
         using var usernameClient = host.CreateClient();
         var usernameCsrf = await GetCsrfAsync(usernameClient);
         using var usernameResponse = await SendLoginAsync(usernameClient, " OWNER-B ", Password2, usernameCsrf.Token, "192.0.2.21");
         Assert.Equal(HttpStatusCode.OK, usernameResponse.StatusCode);
-        Assert.Equal(TestApiHost.Email2, (await usernameResponse.Content.ReadFromJsonAsync<AccountResponse>())!.Email);
+        var usernameAccount = await usernameResponse.Content.ReadFromJsonAsync<AccountResponse>();
+        Assert.Equal(TestApiHost.Email2, usernameAccount!.Email);
+        Assert.Equal(TestApiHost.Username2, usernameAccount.Username);
     }
 
     [Fact]
@@ -216,6 +228,8 @@ public sealed class IdentitySecurityTests
         var csrf = await GetCsrfAsync(client);
         using var login = await SendLoginAsync(client, TestApiHost.Username1, Password1, csrf.Token, "192.0.2.22");
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var backfilledAccount = await login.Content.ReadFromJsonAsync<AccountResponse>();
+        Assert.Equal(TestApiHost.Username1, backfilledAccount!.Username);
     }
 
     [Fact]
@@ -667,7 +681,7 @@ public sealed class IdentitySecurityTests
     private static string Hash(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
 
     private sealed record CsrfResponse(string Token, string HeaderName);
-    private sealed record AccountResponse(Guid UserId, string Email, Guid DeviceId);
+    private sealed record AccountResponse(Guid UserId, string Email, Guid DeviceId, string? Username = null);
     private sealed record PairingResponse(Guid PairingSessionId, string PairingSecret, string ServerOrigin, DateTime ExpiresAt);
     private sealed record TokenResponse(string TokenType, string AccessToken, DateTime AccessTokenExpiresAt, string RefreshToken, DateTime RefreshTokenExpiresAt, Guid UserId, Guid DeviceId);
 

@@ -26,7 +26,7 @@ import {
   TrashIcon,
 } from './Icons';
 
-type Session = { userId: string; email: string; deviceId: string };
+type Session = { userId: string; email: string; deviceId: string; username?: string | null };
 type Csrf = { token: string; headerName: 'X-CSRF-TOKEN' };
 type ViewState = 'loading' | 'signed-out' | 'signed-in';
 type ItemSummary = {
@@ -852,7 +852,8 @@ function App() {
   const linkCount = useMemo(() => items.filter((i) => i.type === 'url').length, [items]);
   const textCount = useMemo(() => items.filter((i) => i.type === 'text').length, [items]);
 
-  const avatarInitial = session?.email ? session.email.charAt(0).toUpperCase() : 'U';
+  const displayName = session?.username || session?.email || '';
+  const avatarInitial = displayName ? displayName.charAt(0).toUpperCase() : 'U';
 
   return (
     <main className="app-shell">
@@ -939,14 +940,15 @@ function App() {
                 <span className="user-avatar-initial" aria-hidden="true">
                   {avatarInitial}
                 </span>
-                <span className="user-email-text hide-mobile">{session.email}</span>
+                <span className="user-email-text hide-mobile">{displayName}</span>
                 <ChevronDownIcon size={12} className={`chevron-indicator ${userMenuOpen ? 'is-open' : ''}`} />
               </button>
 
               {userMenuOpen && (
                 <div className="user-menu-dropdown" role="menu">
                   <div className="dropdown-account-header">
-                    <span className="account-email">{session.email}</span>
+                    <span className="account-username">{displayName}</span>
+                    {session.username && <span className="account-email">{session.email}</span>}
                     <span className="account-tag">
                       <span className="status-dot-pulse" aria-hidden="true" />
                       Web Client · Current session

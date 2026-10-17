@@ -37,7 +37,7 @@ internal static class IdentityEndpoints
                 var userId = GetGuid(principal, "userId");
                 var deviceId = GetGuid(principal, "deviceId");
                 var account = await database.Users.AsNoTracking().SingleAsync(x => x.Id == userId, cancellationToken);
-                return Results.Ok(new AccountResponse(account.Id, account.Email, deviceId));
+                return Results.Ok(new AccountResponse(account.Id, account.Email, deviceId, account.Username));
             })
             .RequireAuthorization()
             .WithName("GetCurrentAccount");
@@ -118,7 +118,7 @@ internal static class IdentityEndpoints
             AllowRefresh = false
         });
 
-        return Results.Ok(new AccountResponse(user.Id, user.Email, device.Id));
+        return Results.Ok(new AccountResponse(user.Id, user.Email, device.Id, user.Username));
     }
 
     private static async Task<IResult> LogoutAsync(
@@ -167,7 +167,7 @@ internal static class IdentityEndpoints
             ? Identifier
             : !string.IsNullOrWhiteSpace(Username) ? Username : Email;
     }
-    internal sealed record AccountResponse(Guid UserId, string Email, Guid DeviceId);
+    internal sealed record AccountResponse(Guid UserId, string Email, Guid DeviceId, string? Username = null);
     internal sealed record CsrfResponse(string Token, string HeaderName);
 }
 
