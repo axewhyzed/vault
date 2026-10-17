@@ -779,6 +779,33 @@ button:disabled { cursor: not-allowed; }
   color: var(--muted);
 }
 
+.retention-input-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.retention-num-input {
+  width: 44px;
+  min-height: auto;
+  height: 26px;
+  padding: 2px 4px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--tab-bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  transition: border-color 140ms ease;
+}
+
+.retention-num-input:focus {
+  outline: none;
+  border-color: var(--green);
+}
+
 .retention-select-wrap {
   position: relative;
   display: inline-flex;

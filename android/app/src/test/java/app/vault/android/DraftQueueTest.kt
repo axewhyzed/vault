@@ -82,4 +82,23 @@ class DraftQueueTest {
         assertEquals("upload-123", progress.current().uploadId)
         store.deleteDraft(initial.id)
     }
+
+    @Test fun sendWithRetentionHoursValidatesAndPersists() {
+        val store = store()
+        val queue = DraftQueue(store, enqueue = {}, cancelWork = {})
+        val source = Draft("hourly-draft", "key-hours", "https://vault.example", "owner", text = "hourly note", displayName = "Note", contentType = "text/plain", sizeBytes = 11)
+
+        val prepared = queue.prepare(source)
+        val sent = queue.send(prepared.id, retentionDays = 1, retentionHours = 4)
+        assertEquals(4, sent.retentionHours)
+        assertEquals(4, store.draft(sent.id)?.retentionHours)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            queue.send(prepared.id, retentionDays = 1, retentionHours = 0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            queue.send(prepared.id, retentionDays = 1, retentionHours = 169)
+        }
+        store.deleteDraft(sent.id)
+    }
 }

@@ -43,15 +43,32 @@ internal static class FileEndpoints
         if (!TryIntentKey(context, out var key)) return Error(context, 400, "invalid_idempotency_key", "Idempotency-Key must be a UUID.");
         if (request is null) return Error(context, 400, "invalid_request", "A JSON request body is required.");
         if (request.SizeBytes is < 0 or > LocalFileStore.MaxUploadBytes) return Error(context, 413, "item_too_large", "Files may not exceed 100000000 bytes.");
-        if (request.RetentionDays is < 1 or > 7) return Error(context, 422, "invalid_retention", "Retention must be between 1 and 7 days.");
-        var retention = request.RetentionDays ?? 7;
+
+        int retentionDaysStored;
+        int retentionFingerprintHours;
+        if (request.RetentionHours is not null)
+        {
+            if (request.RetentionHours < 1 || request.RetentionHours > 168)
+                return Error(context, 422, "invalid_retention", "Retention must be between 1 and 168 hours.");
+            retentionDaysStored = -request.RetentionHours.Value;
+            retentionFingerprintHours = request.RetentionHours.Value;
+        }
+        else
+        {
+            if (request.RetentionDays is < 1 or > 7)
+                return Error(context, 422, "invalid_retention", "Retention must be between 1 and 7 days.");
+            var days = request.RetentionDays ?? 7;
+            retentionDaysStored = days;
+            retentionFingerprintHours = days * 24;
+        }
+
         var displayName = (request.DisplayName ?? "file").Trim();
         if (displayName.Length is < 1 or > 200 || displayName.Any(char.IsControl) || displayName.Contains('/') || displayName.Contains('\\') || displayName is "." or "..")
             return Error(context, 422, "invalid_display_name", "Display name must be at most 200 characters and be a safe file name.");
         var mediaType = NormalizeContentType(request.ContentType);
         var digest = request.Sha256?.Trim().ToLowerInvariant();
         if (digest is not null && (digest.Length != 64 || digest.Any(c => !Uri.IsHexDigit(c)))) return Error(context, 422, "invalid_sha256", "sha256 must contain 64 hexadecimal characters.");
-        var fingerprintText = JsonSerializer.Serialize(new { displayName, mediaType, request.SizeBytes, sha256 = digest, retentionDays = retention });
+        var fingerprintText = JsonSerializer.Serialize(new { displayName, mediaType, request.SizeBytes, sha256 = digest, retentionHours = retentionFingerprintHours });
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintText))).ToLowerInvariant();
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -88,7 +105,7 @@ internal static class FileEndpoints
         {
             OwnerUserId = ownerId, CreatedByDeviceId = deviceId, IntentKey = key, RequestFingerprint = fingerprint,
             DisplayName = displayName, ContentType = mediaType, ExpectedSizeBytes = request.SizeBytes,
-            ExpectedSha256 = digest, RetentionDays = retention, State = "initiated",
+            ExpectedSha256 = digest, RetentionDays = retentionDaysStored, State = "initiated",
             StagingKey = $"{Guid.NewGuid():N}.part", StorageKey = Guid.NewGuid().ToString("N"),
             CreatedAt = now, ExpiresAt = now.AddHours(24), UpdatedAt = now
         };
@@ -249,7 +266,9 @@ internal static class FileEndpoints
         {
             Id = Guid.NewGuid(), OwnerUserId = ownerId, CreatedByDeviceId = deviceId, Type = "file", State = "available",
             DisplayName = session.DisplayName, ContentType = session.ContentType, SizeBytes = session.SizeBytes.Value,
-            CreatedAt = now, AvailableAt = now, ExpiresAt = now.AddDays(session.RetentionDays), UpdatedAt = now, Version = 1
+            CreatedAt = now, AvailableAt = now,
+            ExpiresAt = session.RetentionDays < 0 ? now.AddHours(-session.RetentionDays) : now.AddDays(session.RetentionDays),
+            UpdatedAt = now, Version = 1
         };
         var response = new TransferEndpoints.CreateItemResponse(item.Id, item.Type, item.State, item.AvailableAt, item.ExpiresAt, item.Version);
         var json = JsonSerializer.Serialize(response, JsonSerializerOptions.Web);
@@ -338,7 +357,7 @@ internal static class FileEndpoints
     }
     private static bool FixedEquals(string a, string b) => a.Length == b.Length && CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(a), Encoding.ASCII.GetBytes(b));
     private static IResult Error(HttpContext context, int status, string code, string message) => IdentityErrors.Create(context, status, code, message);
-    internal sealed record InitiateRequest(string? DisplayName, string? ContentType, long SizeBytes, string? Sha256, int? RetentionDays);
+    internal sealed record InitiateRequest(string? DisplayName, string? ContentType, long SizeBytes, string? Sha256, int? RetentionDays = null, int? RetentionHours = null);
     internal sealed record InitiateResponse(Guid UploadId, string UploadUrl, DateTime ExpiresAt, long MaxAcceptedBytes);
     internal sealed record StagedResponse(Guid UploadId, string State, long SizeBytes, string Sha256);
     internal sealed record ErrorResponse(string Code, string Message, string CorrelationId);

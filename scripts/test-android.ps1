@@ -32,6 +32,6 @@ if (-not (Test-Path $wrapper)) { throw 'Gradle wrapper is missing from android/.
 
 Push-Location $androidRoot
 try {
-    & $wrapper --no-daemon --console=plain assembleDebug testDebugUnitTest lintDebug
+    & $wrapper --no-daemon --console=plain clean assembleDebug testDebugUnitTest lintDebug
     if ($LASTEXITCODE -ne 0) { throw "Android verification failed with exit code $LASTEXITCODE." }
 } finally { Pop-Location }

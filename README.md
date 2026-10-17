@@ -100,7 +100,7 @@ Ever find yourself emailing a link to yourself, messaging a bot on Telegram or W
   - **Text Snippets:** Copy directly to your clipboard.
   - **Files:** Download directly to your chosen default folder (with progress indicator and a toast notification), or open immediately using native Android apps via the system resolver.
 - 🔍 **Live Search:** Search received items instantly by file name, text content, payload type, or sending device across both web and mobile.
-- 🧹 **Automatic Tidiness:** Set an expiration window (1, 3, or 7 days) so temporary drops clean themselves up automatically, keeping your storage lean.
+- 🧹 **Flexible Retention & Automated Reaper:** Keep items for hours (1–168h) or days (1–7d). An automated background worker sweeps expired items and orphaned files on schedule.
 - 📁 **Custom Download Folder (Android):** Choose where files get saved on your phone (e.g. `Downloads/Vault`) using the standard Android folder picker. Once selected, downloads save there automatically without asking each time.
 - 🔒 **Granular Session Control:** Log out of your current device with one tap, or revoke all active sessions across all devices from the confirmed security modal.
 
@@ -137,7 +137,7 @@ flowchart LR
 
 ### Technical Details
 
-- **Backend API (`src/api/Vault.Api`):** Built with ASP.NET Core 10 Minimal APIs and EF Core. File uploads are streamed directly from HTTP request bodies into a mounted disk volume—files never buffer in server RAM or bloat the database. Uploads calculate SHA-256 hashes on the fly to guarantee payload integrity.
+- **Backend API (`src/api/Vault.Api`):** Built with ASP.NET Core 10 Minimal APIs and EF Core. File uploads are streamed directly from HTTP request bodies into a mounted disk volume—files never buffer in server RAM or bloat the database. Uploads calculate SHA-256 hashes on the fly to guarantee payload integrity. An automated background worker periodically cleans expired items and orphaned staging files. In development mode, native OpenAPI 3.1 documentation is served via an interactive Scalar reference at `/scalar/v1`.
 - **Desktop Web Client (`web/`):** React 19 + TypeScript single-page application served via Nginx. Session management uses `HttpOnly`, `SameSite=Lax`, encrypted cookies paired with anti-CSRF tokens to protect against cross-origin attacks. Keyboard shortcuts allow rapid navigation (`/` to search, `Escape` to close modals).
 - **Android Client (`android/`):** Native Kotlin application built with Jetpack Compose and Material 3.
   - **Authentication:** Uses cryptographically scoped bearer tokens (`va1_` access tokens, `vr1_` refresh tokens) stored in Android `EncryptedSharedPreferences`. Sessions use a 14-day sliding expiration that refreshes automatically on active usage.
