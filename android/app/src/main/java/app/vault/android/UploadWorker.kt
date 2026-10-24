@@ -11,7 +11,24 @@ import androidx.work.WorkerParameters
 import androidx.work.Constraints
 import androidx.work.BackoffPolicy
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.util.concurrent.TimeUnit
+
+object UploadProgressTracker {
+    private val _progress = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val progress: StateFlow<Map<String, Int>> = _progress.asStateFlow()
+
+    fun update(id: String, percent: Int) {
+        _progress.update { it + (id to percent) }
+    }
+
+    fun remove(id: String) {
+        _progress.update { it - id }
+    }
+}
 
 internal object UploadWorkerDependencies {
     var storeFactory: (Context) -> EncryptedStore = { EncryptedStore(it) }
@@ -51,22 +68,29 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         }
         var progress: UploadDraftProgress? = null
         return try {
-            val uploading = draft.copy(state = if (runAttemptCount == 0) DraftState.UPLOADING else DraftState.RETRYING, safeError = null)
+            val uploading = draft.copy(state = DraftState.UPLOADING, safeError = null)
             store.saveDraft(uploading)
+            UploadProgressTracker.update(uploading.id, 0)
             val p = UploadDraftProgress(store, uploading, persistProgressOnBytes = false)
             progress = p
             val completed = UploadWorkerDependencies.apiFactory(applicationContext).upload(uploading,
                 onState = p::saveState,
                 onProgress = { sent ->
+                    val pct = if (uploading.sizeBytes <= 0) 0 else ((sent.coerceIn(0, uploading.sizeBytes) * 100) / uploading.sizeBytes).toInt()
+                    UploadProgressTracker.update(uploading.id, pct)
                     p.saveBytesSent(sent)
                     setProgressAsync(Data.Builder().putLong("bytesSent", sent).putLong("totalBytes", uploading.sizeBytes).build())
                 })
             store.completeDraft(completed)
             Result.success()
         } catch (e: CancellationException) {
+            if (store.draft(id) != null) {
+                val latest = progress?.current() ?: store.draft(id) ?: draft
+                store.saveDraft(latest.copy(state = DraftState.RETRYING, safeError = "Waiting for a network connection."))
+            }
             throw e
         } catch (e: ApiFailure) {
-            if (isStopped || store.draft(id) == null) return Result.failure()
+            if (store.draft(id) == null) return Result.failure()
             val shouldRetry = e.status == 429 || e.status >= 500
             if (e.status == 401 || e.status == 403) {
                 store.clearCredentials()
@@ -75,15 +99,17 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             store.saveDraft(latest.copy(state = if (shouldRetry) DraftState.RETRYING else DraftState.FAILED, safeError = e.message ?: "Upload failed."))
             if (shouldRetry) Result.retry() else Result.failure()
         } catch (e: java.io.IOException) {
-            if (isStopped || store.draft(id) == null) return Result.failure()
+            if (store.draft(id) == null) return Result.failure()
             val latest = progress?.current() ?: store.draft(id) ?: draft
             store.saveDraft(latest.copy(state = DraftState.RETRYING, safeError = "Waiting for a network connection."))
             Result.retry()
         } catch (e: Exception) {
-            if (isStopped || store.draft(id) == null) return Result.failure()
+            if (store.draft(id) == null) return Result.failure()
             val latest = progress?.current() ?: store.draft(id) ?: draft
             store.saveDraft(latest.copy(state = DraftState.FAILED, safeError = "Upload could not start. Share the item again."))
             Result.failure()
+        } finally {
+            UploadProgressTracker.remove(id)
         }
     }
 

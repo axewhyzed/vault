@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -70,7 +71,7 @@ class MainActivity : ComponentActivity() {
     private var hubHasPinged by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        setTheme(R.style.Theme_Vault)
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val processLaunchIntent = shouldHandleLaunchIntent(savedInstanceState != null)
@@ -321,7 +322,6 @@ class MainActivity : ComponentActivity() {
                 if (oldSpool != null && oldSpool != newSpoolName) store.deleteSpool(oldSpool)
                 composeFileDraft = prepared
                 composeName = prepared.displayName
-                showStatus("File ready to review.", NoticeTone.SUCCESS)
                 refreshCounter++
             } catch (e: Exception) {
                 store.deleteSpool(newSpoolName)
@@ -350,9 +350,12 @@ class MainActivity : ComponentActivity() {
     @Composable private fun VaultScreen() {
         val scope = rememberCoroutineScope()
         val authEpoch by EncryptedStore.authRevision.collectAsState()
+        val draftsEpoch by EncryptedStore.draftsRevision.collectAsState()
+        val liveProgress by UploadProgressTracker.progress.collectAsState()
         val credentials = remember(authEpoch, refreshCounter, foregroundToken) { store.credentials() }
-        val drafts = remember(authEpoch, refreshCounter, foregroundToken, credentials?.origin, credentials?.userId) { store.draftsFor(credentials?.origin, credentials?.userId) }
+        val drafts = remember(authEpoch, draftsEpoch, refreshCounter, foregroundToken, credentials?.origin, credentials?.userId) { store.draftsFor(credentials?.origin, credentials?.userId) }
         val snackbarHostState = remember { SnackbarHostState() }
+        var loginErrorMessage by remember { mutableStateOf<String?>(null) }
 
         var hadCredentials by remember { mutableStateOf(credentials != null) }
         LaunchedEffect(credentials) {
@@ -398,8 +401,19 @@ class MainActivity : ComponentActivity() {
             }
         }
         LaunchedEffect(credentials?.deviceId) {
-            if (credentials != null) store.draftsFor(credentials.origin, credentials.userId)
-                .filter { it.state == DraftState.QUEUED }.forEach { UploadWorker.enqueue(this@MainActivity, it.id) }
+            if (credentials != null) {
+                store.draftsFor(credentials.origin, credentials.userId).forEach { draft ->
+                    when (draft.state) {
+                        DraftState.QUEUED, DraftState.RETRYING -> UploadWorker.enqueue(this@MainActivity, draft.id)
+                        DraftState.UPLOADING -> {
+                            val recovered = draft.copy(state = DraftState.QUEUED, safeError = null)
+                            store.saveDraft(recovered)
+                            UploadWorker.enqueue(this@MainActivity, recovered.id, replace = true)
+                        }
+                        else -> {}
+                    }
+                }
+            }
         }
         val scanner = rememberLauncherForActivityResult(ScanContract()) { result -> result.contents?.let(::parsePairing) }
         val openDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -447,6 +461,7 @@ class MainActivity : ComponentActivity() {
                                 onLogin = { origin, identifier, password, devName ->
                                     if (pairingInProgress) return@WelcomeScreen
                                     pairingInProgress = true
+                                    loginErrorMessage = null
                                     scope.launch {
                                         showStatus("Signing in…")
                                         try {
@@ -454,15 +469,20 @@ class MainActivity : ComponentActivity() {
                                                 vaultApi(this@MainActivity).deviceLogin(origin, identifier, password, devName)
                                             }
                                             result.onSuccess {
+                                                loginErrorMessage = null
                                                 deviceName = devName
                                                 selectedDestination = VaultDestination.SEND
                                                 showStatus("Signed in to Vault.", NoticeTone.SUCCESS)
                                                 refreshCounter++
                                             }.onFailure { e ->
-                                                showStatus(e.message ?: "Sign-in failed.", NoticeTone.ERROR)
+                                                val err = e.message ?: "Sign-in failed."
+                                                loginErrorMessage = err
+                                                showStatus(err, NoticeTone.ERROR)
                                             }
                                         } catch (e: Exception) {
-                                            showStatus(e.message ?: "Sign-in failed.", NoticeTone.ERROR)
+                                            val err = e.message ?: "Sign-in failed."
+                                            loginErrorMessage = err
+                                            showStatus(err, NoticeTone.ERROR)
                                         } finally {
                                             pairingInProgress = false
                                         }
@@ -471,7 +491,11 @@ class MainActivity : ComponentActivity() {
                                 defaultOrigin = BuildConfig.PAIRING_SERVER_ORIGIN,
                                 defaultDeviceName = deviceName,
                                 busy = pairingInProgress,
-                                errorMessage = if (statusTone == NoticeTone.ERROR) statusMessage else null,
+                                errorMessage = loginErrorMessage ?: if (statusTone == NoticeTone.ERROR) statusMessage else null,
+                                onClearError = {
+                                    loginErrorMessage = null
+                                    if (statusTone == NoticeTone.ERROR) statusMessage = ""
+                                },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         } else {
@@ -652,9 +676,10 @@ class MainActivity : ComponentActivity() {
                                 onFile = { openComposer(ComposeKind.FILE) },
                                 serverOrigin = credentials.origin,
                                 drafts = drafts,
+                                liveProgress = liveProgress,
                                 onReview = { reviewDraftId = it },
                                 onRetry = { draft ->
-                                    runCatching { draftQueue().send(draft.id, draft.retentionDays) }
+                                    runCatching { draftQueue().send(draft.id, draft.retentionDays, draft.retentionHours) }
                                         .onSuccess {
                                             val message = if (isNetworkConnected(this@MainActivity)) {
                                                 "Added to Vault. Upload will retry if the network drops."
