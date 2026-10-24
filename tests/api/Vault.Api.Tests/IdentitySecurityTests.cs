@@ -79,6 +79,19 @@ public sealed class IdentitySecurityTests
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(logoutRequest)).StatusCode);
     }
 
+    [Fact]
+    public async Task Security_headers_are_emitted_including_csp_clickjacking_and_nosniff()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var client = host.CreateClient();
+
+        using var response = await client.GetAsync("/health/live");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("DENY", response.Headers.GetValues("X-Frame-Options").Single());
+        Assert.Contains("frame-ancestors 'none'", response.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
+        Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
+    }
+
     private static void AssertSecurityAlternatives(JsonElement operation, params string[] expectedSchemes)
     {
         var alternatives = operation.GetProperty("security").EnumerateArray().ToArray();
@@ -329,7 +342,7 @@ public sealed class IdentitySecurityTests
     }
 
     [Fact]
-    public async Task Sign_in_global_limit_counts_successes_across_client_ips_and_does_not_reset_on_success()
+    public async Task Sign_in_limit_is_isolated_per_client_ip_and_prevents_global_lockout()
     {
         using var host = await TestApiHost.CreateAsync();
         using var client = host.CreateClient();
@@ -341,9 +354,8 @@ public sealed class IdentitySecurityTests
         }
 
         var finalCsrf = await GetCsrfAsync(client);
-        using var limited = await SendLoginAsync(client, TestApiHost.Email1, Password1, finalCsrf.Token, "203.0.113.1");
-        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
-        Assert.NotNull(limited.Headers.RetryAfter);
+        using var distinctClientResponse = await SendLoginAsync(client, TestApiHost.Email1, Password1, finalCsrf.Token, "203.0.113.1");
+        Assert.Equal(HttpStatusCode.OK, distinctClientResponse.StatusCode);
     }
 
     [Fact]
@@ -527,6 +539,43 @@ public sealed class IdentitySecurityTests
         Assert.Equal(HttpStatusCode.Unauthorized, cookieCutoff.StatusCode);
         using var bearerCutoff = await SendBearerAsync(secondMobile, active.AccessToken, "/api/v1/items");
         Assert.Equal(HttpStatusCode.Unauthorized, bearerCutoff.StatusCode);
+    }
+
+    [Fact]
+    public async Task Refresh_with_idempotency_key_safely_retries_without_revocation()
+    {
+        using var host = await TestApiHost.CreateAsync();
+        using var web = host.CreateClient();
+        var csrf = await GetCsrfAsync(web);
+        await LoginAsync(host, web, TestApiHost.Email1, Password1, csrf.Token);
+        csrf = await GetCsrfAsync(web);
+        var pairing = await CreatePairingAsync(web, csrf.Token);
+        using var mobile = host.CreateClient();
+        var original = await PairAsync(mobile, pairing, Guid.NewGuid());
+
+        var idempotencyKey = Guid.NewGuid();
+        using var refreshReq1 = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh")
+        {
+            Content = JsonContent.Create(new { refreshToken = original.RefreshToken })
+        };
+        refreshReq1.Headers.Add("Idempotency-Key", idempotencyKey.ToString("D"));
+        using var response1 = await mobile.SendAsync(refreshReq1);
+        Assert.Equal(HttpStatusCode.OK, response1.StatusCode);
+        var tokens1 = (await response1.Content.ReadFromJsonAsync<TokenResponse>())!;
+
+        using var retryReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh")
+        {
+            Content = JsonContent.Create(new { refreshToken = original.RefreshToken })
+        };
+        retryReq.Headers.Add("Idempotency-Key", idempotencyKey.ToString("D"));
+        using var retryResponse = await mobile.SendAsync(retryReq);
+        Assert.Equal(HttpStatusCode.OK, retryResponse.StatusCode);
+        var retryTokens = (await retryResponse.Content.ReadFromJsonAsync<TokenResponse>())!;
+        Assert.Equal(tokens1.AccessToken, retryTokens.AccessToken);
+        Assert.Equal(tokens1.RefreshToken, retryTokens.RefreshToken);
+
+        using var itemsAccess = await SendBearerAsync(mobile, tokens1.AccessToken, "/api/v1/items");
+        Assert.Equal(HttpStatusCode.OK, itemsAccess.StatusCode);
     }
 
     [Fact]

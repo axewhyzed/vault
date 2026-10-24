@@ -8,6 +8,7 @@ import Topbar from './components/Topbar';
 import AuthLayout from './components/AuthLayout';
 import InboxList from './components/InboxList';
 import ItemDetailPanel from './components/ItemDetailPanel';
+import { PlusIcon } from './Icons';
 import type {
   ApiError,
   Csrf,
@@ -18,7 +19,7 @@ import type {
   Session,
   ViewState,
 } from './types';
-import { readJson, retryDelay } from './utils';
+import { copyToClipboard, readJson, retryDelay } from './utils';
 
 const API = '/api/v1';
 
@@ -51,6 +52,7 @@ export default function App() {
   const [securityModalOpen, setSecurityModalOpen] = useState(false);
   const [securityModalBusy, setSecurityModalBusy] = useState(false);
   const [securityModalError, setSecurityModalError] = useState('');
+  const [mobileComposeOpen, setMobileComposeOpen] = useState(false);
 
   // Inbox & Filter state
   const [items, setItems] = useState<ItemSummary[]>([]);
@@ -122,6 +124,7 @@ export default function App() {
   const signOutOnUnauthorized = useCallback(() => {
     invalidateRequests();
     detailRequestRef.current += 1;
+    detailCache.current.clear();
     setSession(null);
     setView('signed-out');
     setItems([]);
@@ -191,10 +194,31 @@ export default function App() {
     };
     void checkHealth();
     const interval = window.setInterval(checkHealth, 15_000);
+
+    const handleOnline = () => {
+      if (mountedRef.current) setServiceOnline(true);
+      void checkHealth();
+    };
+    const handleOffline = () => {
+      if (mountedRef.current) setServiceOnline(false);
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Prevent default browser file drop behavior that navigates away and destroys in-progress app state
+    const handleGlobalDragOver = (e: DragEvent) => e.preventDefault();
+    const handleGlobalDrop = (e: DragEvent) => e.preventDefault();
+    window.addEventListener('dragover', handleGlobalDragOver);
+    window.addEventListener('drop', handleGlobalDrop);
+
     return () => {
       mountedRef.current = false;
       invalidateRequests();
       window.clearInterval(interval);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('dragover', handleGlobalDragOver);
+      window.removeEventListener('drop', handleGlobalDrop);
     };
   }, [restoreSession]);
 
@@ -207,6 +231,51 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, session?.userId]);
+
+  // Adaptive periodic inbox polling: sync every 8 seconds when active, paused in background
+  useEffect(() => {
+    if (view !== 'signed-in' || !session) return undefined;
+
+    let timer: number | null = null;
+
+    const pollItems = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const response = await fetch(`${API}/items?limit=30`, {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+        });
+        if (response.status === 401) {
+          signOutOnUnauthorized();
+          return;
+        }
+        if (response.ok) {
+          const data = await readJson<ItemPage>(response);
+          if (data && Array.isArray(data.items) && data.quota) {
+            setItems(data.items);
+            setQuota(data.quota);
+          }
+        }
+      } catch {
+        // Tolerated in background sync
+      }
+    };
+
+    timer = window.setInterval(pollItems, 8_000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void pollItems();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      if (timer) window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [view, session, signOutOnUnauthorized]);
 
   useEffect(() => {
     if (view !== 'signed-in' || !session) return;
@@ -228,6 +297,14 @@ export default function App() {
     setDetailError('');
   }, []);
 
+  const openItem = useCallback((id: string) => {
+    window.history.pushState({}, '', `/items/${id}`);
+    setSelectedId(id);
+    setDeleteConfirm(false);
+    setCopyMessage('');
+    setInboxNotice('');
+  }, []);
+
   useEffect(() => {
     const handlePopState = () => {
       setSelectedId(safePathId());
@@ -237,7 +314,7 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Global keyboard shortcuts: / or Cmd+K to focus search; Esc to back out of detail or menus
+  // Global keyboard shortcuts: / or Cmd+K to focus search; Esc to back out; ArrowDown/j & ArrowUp/k to navigate inbox
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -251,23 +328,53 @@ export default function App() {
         return;
       }
 
+      const isAnyModalOpen = pairModalOpen || devicesModalOpen || securityModalOpen;
+
       if (event.key === 'Escape') {
         if (userMenuOpen) {
           setUserMenuOpen(false);
           return;
         }
-        if (selectedId && !pairModalOpen && !securityModalOpen) {
+        if (selectedId && !isAnyModalOpen) {
           backToList();
           return;
         }
         if (searchQuery && document.activeElement === searchInputRef.current) {
           setSearchQuery('');
         }
+        return;
+      }
+
+      // List keyboard navigation: ArrowUp/k, ArrowDown/j when not in an input and no modal open
+      if (!isInput && !isAnyModalOpen && items.length > 0) {
+        if (event.key === 'ArrowDown' || (event.key === 'j' && !event.metaKey && !event.ctrlKey)) {
+          event.preventDefault();
+          const currentIndex = selectedId ? items.findIndex((i) => i.id === selectedId) : -1;
+          const nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
+          const nextItem = items[nextIndex];
+          if (nextItem) openItem(nextItem.id);
+        } else if (event.key === 'ArrowUp' || (event.key === 'k' && !event.metaKey && !event.ctrlKey)) {
+          event.preventDefault();
+          const currentIndex = selectedId ? items.findIndex((i) => i.id === selectedId) : -1;
+          const prevIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
+          const prevItem = items[prevIndex];
+          if (prevItem) openItem(prevItem.id);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, pairModalOpen, securityModalOpen, userMenuOpen, searchQuery, backToList]);
+  }, [
+    selectedId,
+    pairModalOpen,
+    devicesModalOpen,
+    securityModalOpen,
+    userMenuOpen,
+    searchQuery,
+    backToList,
+    items,
+    openItem,
+  ]);
 
   // Click outside listener for user dropdown
   useEffect(() => {
@@ -390,7 +497,7 @@ export default function App() {
           : typeof data.text !== 'string')
       )
         throw new Error('Vault returned an invalid item response.');
-      if (gen === generationRef.current) {
+      if (gen === generationRef.current && detailRequest === detailRequestRef.current) {
         setDetail(data);
         if (data.text) detailCache.current.set(data.id, data.text);
       }
@@ -473,6 +580,7 @@ export default function App() {
       if (response.status === 401 || response.ok) {
         invalidateRequests();
         detailRequestRef.current += 1;
+        detailCache.current.clear();
         setSession(null);
         setView('signed-out');
         setItems([]);
@@ -528,6 +636,7 @@ export default function App() {
       }
       invalidateRequests();
       detailRequestRef.current += 1;
+      detailCache.current.clear();
       setSecurityModalOpen(false);
       setSession(null);
       setView('signed-out');
@@ -554,26 +663,14 @@ export default function App() {
     }
   }
 
-  function openItem(id: string) {
-    window.history.pushState({}, '', `/items/${id}`);
-    setSelectedId(id);
-    setDeleteConfirm(false);
-    setCopyMessage('');
-    setInboxNotice('');
-  }
-
   async function copyText(textToCopy?: string | null) {
     const text = textToCopy ?? detail?.text;
     if (!text) return;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        setCopyMessage('Copied to clipboard.');
-        setTimeout(() => setCopyMessage(''), 2500);
-      } else {
-        throw new Error('clipboard unavailable');
-      }
-    } catch {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopyMessage('Copied to clipboard.');
+      setTimeout(() => setCopyMessage(''), 2500);
+    } else {
       setCopyMessage('Clipboard access failed. Select the text above and copy it.');
     }
   }
@@ -596,42 +693,36 @@ export default function App() {
           }
         }
       }
-      if (text && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        setCopiedItemId(item.id);
-        setTimeout(() => setCopiedItemId(null), 2000);
+      if (text) {
+        const ok = await copyToClipboard(text);
+        if (ok) {
+          setCopiedItemId(item.id);
+          setTimeout(() => setCopiedItemId(null), 2000);
+        } else {
+          setInboxNotice('Could not copy to clipboard.');
+          setTimeout(() => setInboxNotice(''), 2500);
+        }
       }
     } catch {
-      //
+      setInboxNotice('Could not copy to clipboard.');
+      setTimeout(() => setInboxNotice(''), 2500);
     }
   }
 
-  async function downloadAttachment(downloadUrlPath: string, name?: string | null) {
-    setCopyMessage('Preparing attachment…');
+  function downloadAttachment(downloadUrlPath: string, name?: string | null) {
+    setCopyMessage('Starting download…');
     try {
       const url = new URL(downloadUrlPath, window.location.origin);
       if (url.origin !== window.location.origin || !url.pathname.startsWith(`${API}/`))
         throw new Error('Vault returned an invalid download address.');
-      const response = await fetch(`${url.pathname}${url.search}`, {
-        credentials: 'same-origin',
-        cache: 'no-store',
-      });
-      if (response.status === 401) {
-        signOutOnUnauthorized();
-        return;
-      }
-      if (!response.ok) throw new Error(await handleApiFailure(response));
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = objectUrl;
+      link.href = `${url.pathname}${url.search}`;
       link.download = name?.trim() || 'vault-attachment';
       link.rel = 'noopener';
       document.body.append(link);
       link.click();
       link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-      setCopyMessage('Attachment download started.');
+      setCopyMessage('Download started.');
       setTimeout(() => setCopyMessage(''), 2500);
     } catch (error) {
       setCopyMessage(error instanceof Error ? error.message : 'Could not download this attachment.');
@@ -640,7 +731,7 @@ export default function App() {
 
   function handleQuickDownload(item: ItemSummary, e: MouseEvent) {
     e.stopPropagation();
-    void downloadAttachment(`${API}/items/${encodeURIComponent(item.id)}/download`, item.displayName);
+    downloadAttachment(`${API}/items/${encodeURIComponent(item.id)}/download`, item.displayName);
   }
 
   async function handleQuickDelete(id: string, e: MouseEvent) {
@@ -662,6 +753,7 @@ export default function App() {
         return;
       }
       if (response.status !== 204 && !response.ok) throw new Error(await handleApiFailure(response));
+      detailCache.current.delete(id);
       setItems((prev) => prev.filter((i) => i.id !== id));
       if (selectedId === id) {
         setSelectedId(null);
@@ -694,6 +786,7 @@ export default function App() {
       }
       if (response.status !== 204 && !response.ok) throw new Error(await handleApiFailure(response));
       const gen = generationRef.current;
+      detailCache.current.delete(detail.id);
       setItems((previous) => previous.filter((item) => item.id !== detail.id));
       setDeleteConfirm(false);
       setDetail(null);
@@ -754,11 +847,29 @@ export default function App() {
         setUserMenuOpen={setUserMenuOpen}
         userMenuRef={userMenuRef}
         busy={busy}
-        onOpenDevicesModal={() => setDevicesModalOpen(true)}
-        onOpenPairModal={() => setPairModalOpen(true)}
-        onOpenSecurityModal={() => setSecurityModalOpen(true)}
+        onOpenDevicesModal={() => {
+          setPairModalOpen(false);
+          setSecurityModalOpen(false);
+          setDevicesModalOpen(true);
+        }}
+        onOpenPairModal={() => {
+          setDevicesModalOpen(false);
+          setSecurityModalOpen(false);
+          setPairModalOpen(true);
+        }}
+        onOpenSecurityModal={() => {
+          setDevicesModalOpen(false);
+          setPairModalOpen(false);
+          setSecurityModalOpen(true);
+        }}
         onLogout={() => void handleLogout()}
       />
+
+      {serviceOnline === false && (
+        <div className="global-offline-banner" role="status">
+          <span>You are currently working offline. Reconnecting to Vault…</span>
+        </div>
+      )}
 
       {/* Loading View */}
       {view === 'loading' && (
@@ -789,34 +900,32 @@ export default function App() {
       {view === 'signed-in' && session && (
         <section className="inbox-layout" aria-label="Vault Workspace">
           <div className={`vault-workspace ${selectedId ? 'vault-workspace--detail' : ''}`}>
-            {/* Left Panel: Unified Compose Hub (380px–420px) */}
-            <div className="send-stack">
+            {/* Left Panel: Unified Compose Hub (360px–400px) */}
+            <div className={`send-stack ${!mobileComposeOpen ? 'mobile-collapsed' : ''}`}>
+              <button
+                type="button"
+                className="mobile-compose-toggle"
+                onClick={() => setMobileComposeOpen((prev) => !prev)}
+                aria-expanded={mobileComposeOpen}
+              >
+                <PlusIcon size={14} />
+                <span>{mobileComposeOpen ? 'Hide Compose' : '＋ New Transfer to Vault'}</span>
+              </button>
               <ComposeHub
-                onSuccess={() => void loadPage(null, false, generationRef.current)}
+                onSuccess={() => {
+                  setMobileComposeOpen(false);
+                  void loadPage(null, false, generationRef.current);
+                }}
                 onUnauthorized={signOutOnUnauthorized}
                 fetchCsrf={fetchCsrf}
                 handleApiFailure={handleApiFailure}
               />
             </div>
 
-            {/* Right Panel: High-Density Inbox & Timeline */}
+            {/* Right Panel: High-Density Inbox & Master-Detail Timeline */}
             <section className="items-panel" aria-label="Inbox items">
-              <div className="items-heading">
-                {selectedId ? (
-                  <ItemDetailPanel
-                    detail={detail}
-                    detailBusy={detailBusy}
-                    detailError={detailError}
-                    deleteConfirm={deleteConfirm}
-                    deleteBusy={deleteBusy}
-                    copyMessage={copyMessage}
-                    onBack={backToList}
-                    onCopyText={copyText}
-                    onDownload={downloadAttachment}
-                    onSetDeleteConfirm={setDeleteConfirm}
-                    onDelete={() => void deleteDetailItem()}
-                  />
-                ) : (
+              <div className={`items-master-detail ${selectedId ? 'has-detail' : ''}`}>
+                <div className="inbox-master-column">
                   <InboxList
                     items={items}
                     filteredItems={filteredItems}
@@ -841,7 +950,25 @@ export default function App() {
                     onQuickDownload={handleQuickDownload}
                     onQuickCopy={handleQuickCopy}
                     onQuickDelete={handleQuickDelete}
+                    selectedId={selectedId}
                   />
+                </div>
+                {selectedId && (
+                  <div className="inbox-detail-column">
+                    <ItemDetailPanel
+                      detail={detail}
+                      detailBusy={detailBusy}
+                      detailError={detailError}
+                      deleteConfirm={deleteConfirm}
+                      deleteBusy={deleteBusy}
+                      copyMessage={copyMessage}
+                      onBack={backToList}
+                      onCopyText={copyText}
+                      onDownload={downloadAttachment}
+                      onSetDeleteConfirm={setDeleteConfirm}
+                      onDelete={() => void deleteDetailItem()}
+                    />
+                  </div>
                 )}
               </div>
             </section>
@@ -877,6 +1004,11 @@ export default function App() {
         isOpen={pairModalOpen}
         onClose={() => setPairModalOpen(false)}
         onUnauthorized={signOutOnUnauthorized}
+        onDevicePaired={() => {
+          setInboxNotice('Android phone paired successfully!');
+          setTimeout(() => setInboxNotice(''), 4000);
+          void loadPage(null, false, generationRef.current);
+        }}
       />
 
       <SecurityModal

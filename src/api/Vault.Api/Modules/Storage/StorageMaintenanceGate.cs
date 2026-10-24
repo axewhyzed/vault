@@ -5,7 +5,9 @@ namespace Vault.Api.Modules.Storage;
 /// <summary>Coordinates file-volume mutations with backups across API and backup containers.</summary>
 public sealed class StorageMaintenanceGate(IConfiguration configuration)
 {
-    private static readonly SemaphoreSlim WindowsFallback = new(1, 1);
+    private static readonly object WindowsGate = new();
+    private static int WindowsReaders = 0;
+    private static readonly SemaphoreSlim WindowsExclusive = new(1, 1);
     private readonly string _lockPath = Path.GetFullPath(configuration["Storage:MaintenanceLockPath"] ?? "/run/vault-maintenance/maintenance.lock");
 
     public IDisposable EnterShared() => OperatingSystem.IsLinux() ? AcquireNative(shared: true) : AcquireFallback(shared: true);
@@ -31,8 +33,17 @@ public sealed class StorageMaintenanceGate(IConfiguration configuration)
 
     private static IDisposable AcquireFallback(bool shared)
     {
-        WindowsFallback.Wait();
-        return new FallbackLease();
+        if (shared)
+        {
+            lock (WindowsGate)
+            {
+                if (WindowsReaders++ == 0) WindowsExclusive.Wait();
+            }
+            return new SharedFallbackLease();
+        }
+
+        WindowsExclusive.Wait();
+        return new ExclusiveFallbackLease();
     }
 
     private sealed class NativeLease(int fd) : IDisposable
@@ -44,9 +55,20 @@ public sealed class StorageMaintenanceGate(IConfiguration configuration)
         }
     }
 
-    private sealed class FallbackLease : IDisposable
+    private sealed class SharedFallbackLease : IDisposable
     {
-        public void Dispose() => WindowsFallback.Release();
+        public void Dispose()
+        {
+            lock (WindowsGate)
+            {
+                if (--WindowsReaders == 0) WindowsExclusive.Release();
+            }
+        }
+    }
+
+    private sealed class ExclusiveFallbackLease : IDisposable
+    {
+        public void Dispose() => WindowsExclusive.Release();
     }
 
     [DllImport("libc", EntryPoint = "open", SetLastError = true, CharSet = CharSet.Ansi)]

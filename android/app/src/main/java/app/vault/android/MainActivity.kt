@@ -118,7 +118,7 @@ class MainActivity : ComponentActivity() {
 
     private fun parsePairing(raw: String) {
         try {
-            val parsed = PairingPayload.parse(raw, BuildConfig.PAIRING_SERVER_ORIGIN)
+            val parsed = PairingPayload.parse(raw)
             payload = parsed
             pairingDeadline = parsed.expiresAt?.let { java.time.Instant.parse(it).toEpochMilli() } ?: System.currentTimeMillis() + 10 * 60_000L
             secret = parsed.pairingSecret.orEmpty()
@@ -180,6 +180,9 @@ class MainActivity : ComponentActivity() {
                 val draft = withContext(Dispatchers.IO) {
                     if (share.contentUri != null) {
                         val uri = Uri.parse(share.contentUri)
+                        if (uri.authority.equals("${packageName}.fileprovider", ignoreCase = true)) {
+                            throw SecurityException("Internal file URIs cannot be shared into Vault.")
+                        }
                         val metadata = contentMetadata(uri)
                         val input = contentResolver.openInputStream(uri) ?: throw IllegalArgumentException("The shared file is no longer available. Share it again.")
                         val spoolName = UUID.randomUUID().toString()
@@ -285,6 +288,10 @@ class MainActivity : ComponentActivity() {
             showStatus("Pair this phone before sending a file.", NoticeTone.ERROR)
             return
         }
+        if (uri.authority.equals("${packageName}.fileprovider", ignoreCase = true)) {
+            showStatus("Internal file URIs cannot be selected.", NoticeTone.ERROR)
+            return
+        }
         val existing = editingDraftId?.let(store::draft)
         val oldSpool = existing?.spoolName
         preparingFile = true
@@ -381,9 +388,13 @@ class MainActivity : ComponentActivity() {
                 if (statusMessage == message) statusMessage = ""
             }
         }
-        LaunchedEffect(credentials?.deviceId, drafts.any { it.state == DraftState.QUEUED || it.state == DraftState.UPLOADING || it.state == DraftState.RETRYING }) {
-            while (credentials != null && drafts.any { it.state == DraftState.QUEUED || it.state == DraftState.UPLOADING || it.state == DraftState.RETRYING }) {
-                delay(1000); refreshCounter++
+        LaunchedEffect(credentials?.deviceId) {
+            if (credentials != null) {
+                androidx.work.WorkManager.getInstance(this@MainActivity)
+                    .getWorkInfosByTagFlow(UploadWorker.TAG_UPLOAD)
+                    .collect {
+                        refreshCounter++
+                    }
             }
         }
         LaunchedEffect(credentials?.deviceId) {
@@ -759,7 +770,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun draftQueue() = DraftQueue(store,
-        enqueue = { UploadWorker.enqueue(this, it) },
+        enqueue = { UploadWorker.enqueue(this, it, replace = true) },
         cancelWork = { UploadWorker.cancel(this, it) })
 
     companion object {

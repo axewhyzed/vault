@@ -17,11 +17,37 @@ public sealed class DriveInfoFileVolumeCapacity : IFileVolumeCapacity
         try
         {
             var fullPath = Path.GetFullPath(path);
+            try
+            {
+                var direct = new DriveInfo(fullPath);
+                if (direct.IsReady && direct.TotalSize > 0)
+                {
+                    totalBytes = direct.TotalSize;
+                    availableBytes = direct.AvailableFreeSpace;
+                    return true;
+                }
+            }
+            catch { }
+
             var drive = DriveInfo.GetDrives()
                 .Where(x => x.IsReady && IsWithin(fullPath, Path.GetFullPath(x.Name)))
                 .OrderByDescending(x => x.Name.Length)
                 .FirstOrDefault();
-            if (drive is null) return false;
+            if (drive is null)
+            {
+                var root = Path.GetPathRoot(fullPath);
+                if (!string.IsNullOrEmpty(root))
+                {
+                    var rootDrive = new DriveInfo(root);
+                    if (rootDrive.IsReady && rootDrive.TotalSize > 0)
+                    {
+                        totalBytes = rootDrive.TotalSize;
+                        availableBytes = rootDrive.AvailableFreeSpace;
+                        return true;
+                    }
+                }
+                return false;
+            }
             if (!drive.IsReady || drive.TotalSize <= 0) return false;
             totalBytes = drive.TotalSize;
             availableBytes = drive.AvailableFreeSpace;
@@ -60,7 +86,6 @@ public sealed class LocalFileStore(IConfiguration configuration, IFileVolumeCapa
     {
         try
         {
-            Initialize();
             if (!capacity.TryGetCapacity(_root, out var totalBytes, out var availableBytes) || totalBytes <= 0) return false;
             return availableBytes - incomingBytes >= (long)Math.Ceiling(totalBytes * 0.20d);
         }
@@ -99,7 +124,21 @@ public sealed class LocalFileStore(IConfiguration configuration, IFileVolumeCapa
         var destination = ObjectPath(storageKey);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         if (File.Exists(destination)) return;
-        File.Move(source, destination, overwrite: false);
+        try
+        {
+            File.Move(source, destination, overwrite: false);
+        }
+        catch (FileNotFoundException)
+        {
+            throw;
+        }
+        catch (IOException)
+        {
+            if (File.Exists(destination)) return;
+            if (!File.Exists(source)) throw new FileNotFoundException("Staging file not found for promotion.", source);
+            File.Copy(source, destination, overwrite: false);
+            try { File.Delete(source); } catch { }
+        }
         SyncDirectory(Path.GetDirectoryName(source)!);
         SyncDirectory(Path.GetDirectoryName(destination)!);
     }

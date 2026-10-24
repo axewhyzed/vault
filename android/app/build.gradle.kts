@@ -15,17 +15,37 @@ android {
         applicationId = "app.vault.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.8.0"
+        versionCode = 9
+        versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "PAIRING_SERVER_ORIGIN", "\"$defaultPairingOrigin\"")
     }
-    buildTypes {
-    debug {
-            applicationIdSuffix = ".debug"
-        buildConfigField("String", "PAIRING_SERVER_ORIGIN", "\"$configuredDebugOrigin\"")
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("VAULT_KEYSTORE_PATH") ?: providers.gradleProperty("vaultKeystorePath").orNull
+            val storePass = System.getenv("VAULT_KEYSTORE_PASSWORD") ?: providers.gradleProperty("vaultKeystorePassword").orNull
+            val keyAlias = System.getenv("VAULT_KEY_ALIAS") ?: providers.gradleProperty("vaultKeyAlias").orNull
+            val keyPass = System.getenv("VAULT_KEY_PASSWORD") ?: providers.gradleProperty("vaultKeyPassword").orNull
+
+            if (keystorePath != null && file(keystorePath).exists() && !storePass.isNullOrBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = storePass
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPass
+            } else {
+                initWith(getByName("debug"))
+            }
         }
-    release { isMinifyEnabled = false }
+    }
+    buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            buildConfigField("String", "PAIRING_SERVER_ORIGIN", "\"$configuredDebugOrigin\"")
+        }
+        release {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+        }
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

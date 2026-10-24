@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
 import { AlertTriangleIcon, CloseIcon, ShieldLockIcon } from './Icons';
+import { useFocusTrap } from './useFocusTrap';
 
 type Props = {
   isOpen: boolean;
@@ -10,22 +10,15 @@ type Props = {
 };
 
 export default function SecurityModal({ isOpen, onClose, onConfirm, busy, error }: Props) {
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !busy) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, busy, onClose]);
+  const modalRef = useFocusTrap(isOpen, busy ? undefined : onClose);
 
   if (!isOpen) return null;
 
   return (
     <div className="modal-backdrop" onClick={() => !busy && onClose()} role="presentation">
       <div
+        ref={modalRef}
+        tabIndex={-1}
         className="modal-card modal-card--security"
         role="dialog"
         aria-modal="true"

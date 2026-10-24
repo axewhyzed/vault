@@ -44,23 +44,10 @@ internal static class FileEndpoints
         if (request is null) return Error(context, 400, "invalid_request", "A JSON request body is required.");
         if (request.SizeBytes is < 0 or > LocalFileStore.MaxUploadBytes) return Error(context, 413, "item_too_large", "Files may not exceed 100000000 bytes.");
 
-        int retentionDaysStored;
-        int retentionFingerprintHours;
-        if (request.RetentionHours is not null)
-        {
-            if (request.RetentionHours < 1 || request.RetentionHours > 168)
-                return Error(context, 422, "invalid_retention", "Retention must be between 1 and 168 hours.");
-            retentionDaysStored = -request.RetentionHours.Value;
-            retentionFingerprintHours = request.RetentionHours.Value;
-        }
-        else
-        {
-            if (request.RetentionDays is < 1 or > 7)
-                return Error(context, 422, "invalid_retention", "Retention must be between 1 and 7 days.");
-            var days = request.RetentionDays ?? 7;
-            retentionDaysStored = days;
-            retentionFingerprintHours = days * 24;
-        }
+        if (!RetentionPolicy.TryParse(request.RetentionDays, request.RetentionHours, out var retention, out var retentionError))
+            return Error(context, 422, "invalid_retention", retentionError!);
+        var retentionDaysStored = retention.StoredValue;
+        var retentionFingerprintHours = retention.FingerprintHours;
 
         var displayName = (request.DisplayName ?? "file").Trim();
         if (displayName.Length is < 1 or > 200 || displayName.Any(char.IsControl) || displayName.Contains('/') || displayName.Contains('\\') || displayName is "." or "..")
@@ -72,7 +59,7 @@ internal static class FileEndpoints
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintText))).ToLowerInvariant();
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        if (!await LockOwnerAsync(db, ownerId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
+        if (!await db.LockOwnerAsync(ownerId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
         var prior = await db.UploadSessions.SingleOrDefaultAsync(x => x.OwnerUserId == ownerId && x.IntentKey == key, ct);
         if (prior is not null)
         {
@@ -218,7 +205,7 @@ internal static class FileEndpoints
         if (!TryIntentKey(context, out var key)) return Error(context, 400, "invalid_idempotency_key", "Idempotency-Key must be a UUID.");
         using var maintenanceLock = gate.EnterShared();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        if (!await LockOwnerAsync(db, ownerId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
+        if (!await db.LockOwnerAsync(ownerId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
         await db.UploadSessions.Where(x => x.Id == id && x.OwnerUserId == ownerId)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.State, x => x.State), ct);
         var session = await db.UploadSessions.SingleOrDefaultAsync(x => x.Id == id && x.OwnerUserId == ownerId, ct);
@@ -244,6 +231,7 @@ internal static class FileEndpoints
         var bytes = await active.Select(x => (long?)x.SizeBytes).SumAsync(ct) ?? 0;
         if (count + 1 > MaxActiveItems || bytes > MaxActiveBytes - session.SizeBytes.Value)
         {
+            files.DeleteStaging(session.StagingKey);
             await AddFailureAuditAsync(db, context, ownerId, deviceId, clock, ct);
             await tx.CommitAsync(ct);
             return Error(context, 409, "quota_exceeded", "The active item or byte quota would be exceeded.");
@@ -285,18 +273,29 @@ internal static class FileEndpoints
         return Results.Json(response, statusCode: 201);
     }
 
-    private static async Task<IResult> DownloadAsync(Guid id, HttpContext context, VaultDbContext db, LocalFileStore files, TimeProvider clock, CancellationToken ct)
+    private static async Task<IResult> DownloadAsync(Guid id, HttpContext context, VaultDbContext db, LocalFileStore files, StorageMaintenanceGate gate, TimeProvider clock, CancellationToken ct)
     {
         var ownerId = IdentityEndpoints.GetGuid(context.User, "userId");
         var deviceId = IdentityEndpoints.GetGuid(context.User, "deviceId");
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        if (!await LockOwnerAsync(db, ownerId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
         var item = await db.Items.SingleOrDefaultAsync(x => x.Id == id && x.OwnerUserId == ownerId, ct);
         if (item is null || item.Type != "file") return Error(context, 404, "item_not_found", "The item was not found.");
         if (item.ExpiresAt <= clock.GetUtcNow().UtcDateTime || item.State == "expired") return Error(context, 410, "item_expired", "The item has expired.");
         if (item.State != "available") return Error(context, 404, "item_not_found", "The item was not found.");
         var session = await db.UploadSessions.SingleOrDefaultAsync(x => x.ItemId == id && x.OwnerUserId == ownerId, ct);
         if (session is null) return Error(context, 503, "file_unavailable", "The file is unavailable.");
+
+        if (!File.Exists(files.ObjectPath(session.StorageKey)))
+        {
+            item.State = "unavailable";
+            item.UpdatedAt = clock.GetUtcNow().UtcDateTime;
+            item.Version++;
+            await db.SaveChangesAsync(ct);
+            return Error(context, 503, "file_unavailable", "The file is unavailable.");
+        }
+
+        db.AuditEvents.Add(new VaultAuditEvent { EventType = "file_downloaded", ActorUserId = ownerId, ActorDeviceId = deviceId, ItemId = id, CorrelationId = context.TraceIdentifier, OccurredAt = clock.GetUtcNow().UtcDateTime });
+        await db.SaveChangesAsync(ct);
+
         var stream = files.OpenRead(session.StorageKey);
         if (stream is null)
         {
@@ -304,16 +303,16 @@ internal static class FileEndpoints
             item.UpdatedAt = clock.GetUtcNow().UtcDateTime;
             item.Version++;
             await db.SaveChangesAsync(ct);
-            await tx.CommitAsync(ct);
             return Error(context, 503, "file_unavailable", "The file is unavailable.");
         }
-        db.AuditEvents.Add(new VaultAuditEvent { EventType = "file_downloaded", ActorUserId = ownerId, ActorDeviceId = deviceId, ItemId = id, CorrelationId = context.TraceIdentifier, OccurredAt = clock.GetUtcNow().UtcDateTime });
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
+
+        var maintenanceLease = gate.EnterShared();
+        context.Response.RegisterForDispose(maintenanceLease);
+
         context.Response.Headers["X-Content-Type-Options"] = "nosniff";
         context.Response.Headers["Cache-Control"] = "no-store, max-age=0";
         context.Response.Headers["Pragma"] = "no-cache";
-        return Results.File(stream, item.ContentType, fileDownloadName: item.DisplayName, enableRangeProcessing: false);
+        return Results.File(stream, item.ContentType, fileDownloadName: item.DisplayName, enableRangeProcessing: true);
     }
 
     private static async Task MarkFailedAsync(VaultDbContext db, Guid id, Guid ownerId, TimeProvider clock, CancellationToken ct) =>
@@ -323,9 +322,6 @@ internal static class FileEndpoints
     private static async Task ResetReceivingAsync(VaultDbContext db, Guid id, Guid ownerId, TimeProvider clock, CancellationToken ct) =>
         await db.UploadSessions.Where(x => x.Id == id && x.OwnerUserId == ownerId && x.State == "receiving")
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "initiated").SetProperty(x => x.UpdatedAt, clock.GetUtcNow().UtcDateTime), ct);
-
-    private static async Task<bool> LockOwnerAsync(VaultDbContext db, Guid ownerId, CancellationToken ct) =>
-        await db.Users.Where(x => x.Id == ownerId && x.Status == "active").ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, x => x.Status), ct) == 1;
 
     private static string NormalizeContentType(string? value)
     {

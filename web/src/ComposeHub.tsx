@@ -10,6 +10,7 @@ import {
   SendIcon,
   TextIcon,
 } from './Icons';
+import { formatBytes, readJson } from './utils';
 
 type Csrf = { token: string; headerName: 'X-CSRF-TOKEN' };
 type SendIntent = {
@@ -33,26 +34,6 @@ type UploadPhase =
   | 'cancelled';
 
 const API = '/api/v1';
-
-async function readJson<T>(response: Response): Promise<T | null> {
-  try {
-    return (await response.json()) as T;
-  } catch {
-    return null;
-  }
-}
-
-function formatBytes(value: number) {
-  if (value < 1000) return `${value} B`;
-  const units = ['KB', 'MB', 'GB'];
-  let size = value / 1000;
-  let unit = 0;
-  while (size >= 1000 && unit < units.length - 1) {
-    size /= 1000;
-    unit += 1;
-  }
-  return `${size >= 100 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`;
-}
 
 function safeError(status: number, message?: string) {
   if (status === 401) return 'Your session has expired. Sign in again to continue.';
@@ -80,21 +61,27 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
   const [retentionValue, setRetentionValue] = useState(7);
   const [retentionUnit, setRetentionUnit] = useState<'days' | 'hours'>('days');
 
-  // Text & URL state
-  const [content, setContent] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [sendBusy, setSendBusy] = useState(false);
-  const [sendMessage, setSendMessage] = useState('');
-  const [sendError, setSendError] = useState(false);
-  const [retryIntent, setRetryIntent] = useState<SendIntent | null>(null);
+  // Text state
+  const [textContent, setTextContent] = useState('');
+  const [textLabel, setTextLabel] = useState('');
+
+  // URL state
+  const [urlContent, setUrlContent] = useState('');
+  const [urlLabel, setUrlLabel] = useState('');
 
   // File state
   const [file, setFile] = useState<File | null>(null);
+  const [fileLabel, setFileLabel] = useState('');
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>('idle');
   const [uploadMessage, setUploadMessage] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadSha256, setUploadSha256] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
+
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendMessage, setSendMessage] = useState('');
+  const [sendError, setSendError] = useState(false);
+  const [retryIntent, setRetryIntent] = useState<SendIntent | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const intentKeyRef = useRef<string | null>(null);
@@ -129,7 +116,9 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
     event?.preventDefault();
     if (sendBusy || tab === 'file') return;
 
-    const trimmed = content.trim();
+    const rawContent = tab === 'text' ? textContent : urlContent;
+    const rawLabel = tab === 'text' ? textLabel : urlLabel;
+    const trimmed = rawContent.trim();
     if (!trimmed) {
       setSendError(true);
       setSendMessage(tab === 'url' ? 'Enter a web address to send.' : 'Enter some text to send.');
@@ -137,7 +126,7 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
     }
 
     if (tab === 'text') {
-      const bytes = new TextEncoder().encode(content).byteLength;
+      const bytes = new TextEncoder().encode(textContent).byteLength;
       if (bytes > 256 * 1024) {
         setSendError(true);
         setSendMessage('Text exceeds the 256 KiB UTF-8 limit. Shorten it and try again.');
@@ -166,8 +155,8 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
         key: crypto.randomUUID(),
         kind: tab,
         body: {
-          ...(tab === 'text' ? { text: content } : { url: trimmed }),
-          ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
+          ...(tab === 'text' ? { text: textContent } : { url: trimmed }),
+          ...(rawLabel.trim() ? { displayName: rawLabel.trim() } : {}),
           ...retentionPayload,
         },
       };
@@ -209,8 +198,13 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
       }
 
       setRetryIntent(null);
-      setContent('');
-      setDisplayName('');
+      if (tab === 'text') {
+        setTextContent('');
+        setTextLabel('');
+      } else {
+        setUrlContent('');
+        setUrlLabel('');
+      }
       setSendMessage(tab === 'url' ? 'Link saved to Vault.' : 'Text added to Vault.');
       setSendError(false);
       onSuccess();
@@ -244,6 +238,14 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
     xhrRef.current = null;
     abortRef.current?.abort();
     abortRef.current = null;
+
+    if (next && next.size === 0) {
+      setFile(null);
+      setUploadPhase('failed-initiate');
+      setUploadMessage('Cannot upload empty (0-byte) files. Choose a valid file.');
+      return;
+    }
+
     setFile(next);
     setUploadPhase('idle');
     setUploadMessage('');
@@ -261,6 +263,8 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
     xhrRef.current = null;
     abortRef.current?.abort();
     abortRef.current = null;
+    uploadRef.current = null;
+    intentKeyRef.current = null;
     setUploadPhase(wasFinalizing ? 'failed-complete' : 'cancelled');
     setUploadMessage(
       wasFinalizing
@@ -439,7 +443,7 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
               'Idempotency-Key': key,
             },
             body: JSON.stringify({
-              displayName: displayName.trim() || file.name,
+              displayName: fileLabel.trim() || file.name,
               contentType: file.type || 'application/octet-stream',
               sizeBytes: file.size,
               ...intentRetentionRef.current,
@@ -531,14 +535,37 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
     e.stopPropagation();
     setIsDragOver(false);
     if (isUploading) return;
-    const dropped = e.dataTransfer.files?.[0];
-    if (dropped) {
-      setTab('file');
-      selectFile(dropped);
+
+    // Check directory drag
+    const items = e.dataTransfer.items;
+    if (items && items.length > 0) {
+      const item = items[0];
+      const entry = (item as unknown as { webkitGetAsEntry?: () => { isDirectory: boolean } | null }).webkitGetAsEntry?.();
+      if (entry?.isDirectory) {
+        setTab('file');
+        setUploadPhase('failed-initiate');
+        setUploadMessage('Folders/directories cannot be uploaded. Compress the folder into a zip file first.');
+        return;
+      }
     }
+
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    if (files.length > 1) {
+      setUploadMessage(`Note: Only "${files[0].name}" was selected. Multi-file batch drops are not supported.`);
+    }
+
+    const dropped = files[0];
+    setTab('file');
+    selectFile(dropped);
   }
 
-  const textByteLength = new TextEncoder().encode(content).byteLength;
+  const textByteLength = new TextEncoder().encode(textContent).byteLength;
+  const isNearTextLimit = textByteLength > 200 * 1024;
+  const isOverTextLimit = textByteLength > 256 * 1024;
+  const urlByteLength = new TextEncoder().encode(urlContent).byteLength;
+  const isOverUrlLimit = urlByteLength > 8192;
   const retryMode =
     uploadPhase === 'failed-complete'
       ? 'complete'
@@ -654,9 +681,9 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
             <textarea
               id="compose-text-input"
               rows={4}
-              value={content}
+              value={textContent}
               onChange={(e) => {
-                setContent(e.target.value);
+                setTextContent(e.target.value);
                 resetSendFeedback();
               }}
               onKeyDown={handleTextKeyDown}
@@ -666,7 +693,11 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
             />
             <div className="compose-meta-row" id="text-byte-hint">
               <span className="field-hint">⌘/Ctrl + Enter to send</span>
-              <span className="byte-counter">
+              <span
+                className={`byte-counter font-mono tabular-nums ${
+                  isOverTextLimit ? 'is-over-limit' : isNearTextLimit ? 'is-near-limit' : ''
+                }`}
+              >
                 {formatBytes(textByteLength)} / 256 KiB
               </span>
             </div>
@@ -680,14 +711,19 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
               id="compose-text-label"
               type="text"
               maxLength={200}
-              value={displayName}
+              value={textLabel}
               onChange={(e) => {
-                setDisplayName(e.target.value);
+                setTextLabel(e.target.value);
                 resetSendFeedback();
               }}
               disabled={sendBusy}
               placeholder="e.g. WiFi password, code snippet"
             />
+            {textLabel.length > 150 && (
+              <small className="field-hint label-counter font-mono tabular-nums">
+                {200 - textLabel.length} characters remaining
+              </small>
+            )}
           </div>
 
           {sendMessage && (
@@ -704,7 +740,7 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
             <button
               className="primary-button"
               type="submit"
-              disabled={sendBusy || !content.trim()}
+              disabled={sendBusy || !textContent.trim() || isOverTextLimit}
             >
               <span>{sendBusy ? 'Sending to Vault…' : 'Send to Vault'}</span>
               <ArrowRightIcon size={16} />
@@ -731,9 +767,9 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
               id="compose-url-input"
               type="url"
               inputMode="url"
-              value={content}
+              value={urlContent}
               onChange={(e) => {
-                setContent(e.target.value);
+                setUrlContent(e.target.value);
                 resetSendFeedback();
               }}
               disabled={sendBusy}
@@ -741,6 +777,16 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
               required
             />
             <small className="field-hint">Links are saved as text for fast handoff. Vault never opens or pre-fetches them.</small>
+            {urlByteLength > 0 && (
+              <div className="compose-meta-row">
+                <span />
+                <span
+                  className={`byte-counter font-mono tabular-nums ${isOverUrlLimit ? 'is-over-limit' : ''}`}
+                >
+                  {formatBytes(urlByteLength)} / 8 KiB
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="field-group">
@@ -751,14 +797,19 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
               id="compose-url-label"
               type="text"
               maxLength={200}
-              value={displayName}
+              value={urlLabel}
               onChange={(e) => {
-                setDisplayName(e.target.value);
+                setUrlLabel(e.target.value);
                 resetSendFeedback();
               }}
               disabled={sendBusy}
               placeholder="e.g. Tech doc, article reference"
             />
+            {urlLabel.length > 150 && (
+              <small className="field-hint label-counter font-mono tabular-nums">
+                {200 - urlLabel.length} characters remaining
+              </small>
+            )}
           </div>
 
           {sendMessage && (
@@ -775,7 +826,7 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
             <button
               className="primary-button"
               type="submit"
-              disabled={sendBusy || !content.trim()}
+              disabled={sendBusy || !urlContent.trim() || isOverUrlLimit}
             >
               <span>{sendBusy ? 'Sending link…' : 'Send to Vault'}</span>
               <ArrowRightIcon size={16} />
@@ -870,11 +921,16 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
                 id="compose-file-label"
                 type="text"
                 maxLength={200}
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
+                value={fileLabel}
+                onChange={(e) => setFileLabel(e.target.value)}
                 disabled={isUploading}
                 placeholder={file.name}
               />
+              {fileLabel.length > 150 && (
+                <small className="field-hint label-counter font-mono tabular-nums">
+                  {200 - fileLabel.length} characters remaining
+                </small>
+              )}
             </div>
           )}
 

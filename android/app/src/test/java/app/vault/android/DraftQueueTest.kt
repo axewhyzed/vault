@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import java.io.ByteArrayInputStream
 import javax.crypto.KeyGenerator
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -100,5 +101,42 @@ class DraftQueueTest {
             queue.send(prepared.id, retentionDays = 1, retentionHours = 169)
         }
         store.deleteDraft(sent.id)
+    }
+
+    @Test fun draftSerializesWithVersionAndRoundTrips() {
+        val draft = Draft(
+            id = "versioned-draft",
+            idempotencyKey = "key-v1",
+            serverOrigin = "https://vault.example",
+            ownerUserId = "owner",
+            displayName = "test.txt",
+            contentType = "text/plain",
+            sizeBytes = 42,
+            version = 1
+        )
+        val json = draft.json()
+        assertEquals(1, json.getInt("version"))
+        val parsed = Draft.from(json)
+        assertEquals(draft, parsed)
+        assertEquals(1, parsed.version)
+    }
+
+    @Test fun draftFromToleratesMissingOrInvalidFieldsWithSafeDefaults() {
+        val minimalJson = JSONObject().apply {
+            put("id", "legacy-id")
+            put("idempotencyKey", "legacy-key")
+            put("serverOrigin", "https://vault.example")
+            put("ownerUserId", "legacy-user")
+            put("state", "UNKNOWN_FUTURE_STATE")
+            put("contentKind", "UNKNOWN_KIND")
+        }
+        val draft = Draft.from(minimalJson)
+        assertEquals("legacy-id", draft.id)
+        assertEquals("shared-file", draft.displayName)
+        assertEquals("application/octet-stream", draft.contentType)
+        assertEquals(0L, draft.sizeBytes)
+        assertEquals(DraftState.QUEUED, draft.state)
+        assertEquals(DraftContentKind.FILE, draft.contentKind)
+        assertEquals(1, draft.version)
     }
 }

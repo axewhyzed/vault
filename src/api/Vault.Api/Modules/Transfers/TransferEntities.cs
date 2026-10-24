@@ -54,3 +54,30 @@ public sealed class UploadSession
     public DateTime ExpiresAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
+
+public readonly record struct RetentionPolicy(int StoredValue, int FingerprintHours, TimeSpan Duration)
+{
+    public static bool TryParse(int? retentionDays, int? retentionHours, out RetentionPolicy policy, out string? error)
+    {
+        policy = default;
+        error = null;
+        if (retentionHours is not null)
+        {
+            if (retentionHours < 1 || retentionHours > 168)
+            {
+                error = "Retention must be between 1 and 168 hours.";
+                return false;
+            }
+            policy = new RetentionPolicy(-retentionHours.Value, retentionHours.Value, TimeSpan.FromHours(retentionHours.Value));
+            return true;
+        }
+        if (retentionDays is < 1 or > 7)
+        {
+            error = "Retention must be between 1 and 7 days.";
+            return false;
+        }
+        var days = retentionDays ?? 7;
+        policy = new RetentionPolicy(days, days * 24, TimeSpan.FromDays(days));
+        return true;
+    }
+}

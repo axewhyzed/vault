@@ -63,7 +63,22 @@ internal object CredentialRefreshCoordinator {
         runCatching { Instant.parse(credentials.accessExpiry).isAfter(Instant.now().plusSeconds(20)) }.getOrDefault(false)
 }
 
-class VaultApi(private val store: EncryptedStore, private val client: OkHttpClient = OkHttpClient.Builder().callTimeout(10, TimeUnit.MINUTES).build()) {
+internal object VaultHttpClient {
+    val sharedClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .callTimeout(10, TimeUnit.MINUTES)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .build()
+    }
+}
+
+class VaultApi(
+    private val store: EncryptedStore,
+    private val client: OkHttpClient = VaultHttpClient.sharedClient,
+    private val cacheDir: File? = null,
+) {
     fun pair(payload: PairingPayload, secret: String, deviceName: String): Credentials {
         val key = java.util.UUID.randomUUID().toString()
         val json = JSONObject().put("pairingSessionId", payload.pairingSessionId).put("pairingSecret", secret).put("deviceName", deviceName)
@@ -403,7 +418,8 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
             }
             retry
         } else response
-        val temp = try { File.createTempFile("vault-inbox-", ".part", File(System.getProperty("java.io.tmpdir") ?: ".")) }
+        val targetDir = cacheDir ?: runCatching { store.appCacheDir }.getOrNull() ?: File(System.getProperty("java.io.tmpdir") ?: ".")
+        val temp = try { File.createTempFile("vault-inbox-", ".part", targetDir) }
         catch (_: IOException) { throw ApiFailure(503, "download_storage_unavailable", "There is not enough private storage to download this file.") }
         return try {
             finalResponse.use { res ->
@@ -483,8 +499,7 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
     private fun refresh(old: Credentials): Credentials {
         val body = JSONObject().put("refreshToken", old.refreshToken).toString()
         val text = try { execute(old.origin + "/api/v1/auth/refresh", "POST", body) } catch (e: IOException) {
-            store.clearCredentials()
-            throw ApiFailure(401, "refresh_response_lost", "Pair this device again because the refresh response was lost.")
+            throw e
         } catch (e: ApiFailure) {
             if (e.status == 401 || e.code == "invalid_refresh_token") {
                 store.clearCredentials()
@@ -572,4 +587,4 @@ class VaultApi(private val store: EncryptedStore, private val client: OkHttpClie
     private fun String.toRequestBodyJson() = toRequestBody("application/json; charset=utf-8".toMediaType())
 }
 
-fun vaultApi(context: Context): VaultApi = VaultApi(EncryptedStore(context))
+fun vaultApi(context: Context): VaultApi = VaultApi(EncryptedStore(context), VaultHttpClient.sharedClient, context.cacheDir)

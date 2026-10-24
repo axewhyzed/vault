@@ -18,7 +18,11 @@ internal object UploadWorkerDependencies {
     var apiFactory: (Context) -> VaultApi = ::vaultApi
 }
 
-internal class UploadDraftProgress(private val store: EncryptedStore, initial: Draft) {
+internal class UploadDraftProgress(
+    private val store: EncryptedStore,
+    initial: Draft,
+    private val persistProgressOnBytes: Boolean = true,
+) {
     private var latest = initial
 
     @Synchronized fun saveState(changed: Draft) {
@@ -28,7 +32,9 @@ internal class UploadDraftProgress(private val store: EncryptedStore, initial: D
 
     @Synchronized fun saveBytesSent(bytesSent: Long) {
         latest = latest.copy(bytesSent = bytesSent)
-        store.saveDraft(latest)
+        if (persistProgressOnBytes) {
+            store.saveDraft(latest)
+        }
     }
 
     @Synchronized fun current(): Draft = latest
@@ -43,14 +49,16 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             store.saveDraft(draft.copy(state = DraftState.FAILED, safeError = "The shared file is no longer available. Share it again."))
             return Result.failure()
         }
+        var progress: UploadDraftProgress? = null
         return try {
             val uploading = draft.copy(state = if (runAttemptCount == 0) DraftState.UPLOADING else DraftState.RETRYING, safeError = null)
             store.saveDraft(uploading)
-            val progress = UploadDraftProgress(store, uploading)
+            val p = UploadDraftProgress(store, uploading, persistProgressOnBytes = false)
+            progress = p
             val completed = UploadWorkerDependencies.apiFactory(applicationContext).upload(uploading,
-                onState = progress::saveState,
+                onState = p::saveState,
                 onProgress = { sent ->
-                    progress.saveBytesSent(sent)
+                    p.saveBytesSent(sent)
                     setProgressAsync(Data.Builder().putLong("bytesSent", sent).putLong("totalBytes", uploading.sizeBytes).build())
                 })
             store.completeDraft(completed)
@@ -58,19 +66,22 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         } catch (e: CancellationException) {
             throw e
         } catch (e: ApiFailure) {
+            if (isStopped || store.draft(id) == null) return Result.failure()
             val shouldRetry = e.status == 429 || e.status >= 500
             if (e.status == 401 || e.status == 403) {
                 store.clearCredentials()
             }
-            val latest = store.draft(id) ?: draft
+            val latest = progress?.current() ?: store.draft(id) ?: draft
             store.saveDraft(latest.copy(state = if (shouldRetry) DraftState.RETRYING else DraftState.FAILED, safeError = e.message ?: "Upload failed."))
             if (shouldRetry) Result.retry() else Result.failure()
         } catch (e: java.io.IOException) {
-            val latest = store.draft(id) ?: draft
+            if (isStopped || store.draft(id) == null) return Result.failure()
+            val latest = progress?.current() ?: store.draft(id) ?: draft
             store.saveDraft(latest.copy(state = DraftState.RETRYING, safeError = "Waiting for a network connection."))
             Result.retry()
         } catch (e: Exception) {
-            val latest = store.draft(id) ?: draft
+            if (isStopped || store.draft(id) == null) return Result.failure()
+            val latest = progress?.current() ?: store.draft(id) ?: draft
             store.saveDraft(latest.copy(state = DraftState.FAILED, safeError = "Upload could not start. Share the item again."))
             Result.failure()
         }
@@ -78,13 +89,17 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
     companion object {
         internal const val KEY_DRAFT_ID = "draftId"
-        fun enqueue(context: Context, id: String) {
+        const val TAG_UPLOAD = "vault-upload"
+
+        fun enqueue(context: Context, id: String, replace: Boolean = false) {
             val request = OneTimeWorkRequestBuilder<UploadWorker>()
+                .addTag(TAG_UPLOAD)
                 .setInputData(Data.Builder().putString(KEY_DRAFT_ID, id).build())
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork("vault-upload-$id", ExistingWorkPolicy.KEEP, request)
+            val policy = if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP
+            WorkManager.getInstance(context).enqueueUniqueWork("vault-upload-$id", policy, request)
         }
 
         fun cancel(context: Context, id: String) {

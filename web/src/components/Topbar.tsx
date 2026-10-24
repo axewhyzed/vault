@@ -95,7 +95,7 @@ export default function Topbar({
           >
             <span className="storage-pill-fill" style={{ width: `${bytePercent}%` }} />
           </div>
-          <span className="storage-pill-text">
+          <span className="storage-pill-text font-mono tabular-nums">
             {quota
               ? `${formatBytes(quota.activeBytes)} / ${formatBytes(quota.maxActiveBytes)} · ${bytePercent.toFixed(0)}%`
               : 'Storage'}

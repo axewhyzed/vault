@@ -246,4 +246,29 @@ class VaultSessionApiTest {
             assertNull(store.credentials())
         } finally { server.shutdown() }
     }
+
+    @Test fun networkFailureDuringTokenRefreshPreservesLocalCredentials() = kotlinx.coroutines.runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            val store = EncryptedStore(
+                ApplicationProvider.getApplicationContext<Context>(),
+                VaultCrypto(KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()),
+            )
+            val serverOrigin = server.url("/").toString().trimEnd('/')
+            val original = Credentials(serverOrigin, "va1_expired", "2020-01-01T00:00:00Z", "vr1_refresh", "2099-02-01T00:00:00Z", "owner", "device")
+            store.saveCredentials(original)
+            server.shutdown()
+
+            val failure = runCatching {
+                VaultApi(store).executeAuthedRequest { base, token ->
+                    okhttp3.Request.Builder().url(base).build()
+                }
+            }
+            assertTrue(failure.isFailure)
+            assertTrue(failure.exceptionOrNull() is java.io.IOException)
+            val retained = store.credentials()
+            assertNotNull(retained)
+            assertEquals(original.refreshToken, retained!!.refreshToken)
+        } finally { runCatching { server.shutdown() } }
+    }
 }
