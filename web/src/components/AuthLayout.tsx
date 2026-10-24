@@ -1,5 +1,6 @@
 import type { FormEvent, RefObject } from 'react';
-import { ArrowRightIcon, ShieldLockIcon } from '../Icons';
+import { AndroidIcon, ArrowRightIcon, DownloadIcon, ShieldLockIcon } from '../Icons';
+import { VAULT_ANDROID_RELEASE_URL } from '../utils';
 
 type AuthLayoutProps = {
   serviceOnline: boolean | null;
@@ -55,6 +56,26 @@ export default function AuthLayout({
                 ? 'Vault service ready'
                 : 'Vault is having trouble connecting'}
           </span>
+        </div>
+
+        <div className="auth-apk-download-box">
+          <a
+            href={VAULT_ANDROID_RELEASE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="auth-apk-download-btn"
+            title="Download Vault Android client (v1.0.0 APK)"
+            aria-label="Download Vault for Android APK"
+          >
+            <div className="auth-apk-icon-badge" aria-hidden="true">
+              <AndroidIcon size={20} />
+            </div>
+            <div className="auth-apk-content">
+              <span className="auth-apk-title">Vault for Android</span>
+              <span className="auth-apk-subtitle font-mono tabular-nums">Download APK · v1.0.0</span>
+            </div>
+            <DownloadIcon size={16} className="auth-apk-arrow" />
+          </a>
         </div>
       </div>
       <section className="auth-card" aria-labelledby="signin-title">

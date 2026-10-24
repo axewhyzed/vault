@@ -1,7 +1,8 @@
 import type { RefObject } from 'react';
 import type { Session, Quota, ViewState } from '../types';
-import { formatBytes } from '../utils';
+import { formatBytes, VAULT_ANDROID_RELEASE_URL } from '../utils';
 import {
+  AndroidIcon,
   ChevronDownIcon,
   DevicesIcon,
   MoonIcon,
@@ -107,6 +108,18 @@ export default function Topbar({
       <div className="topbar-right">
         {view === 'signed-in' && (
           <>
+            <a
+              href={VAULT_ANDROID_RELEASE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="topbar-action-btn topbar-apk-btn"
+              title="Download Vault Android APK (v1.0.0)"
+              aria-label="Download Vault Android APK"
+            >
+              <AndroidIcon size={14} className="apk-btn-icon" />
+              <span className="hide-mobile">Get APK</span>
+            </a>
+
             <button
               type="button"
               className="topbar-action-btn"
@@ -182,6 +195,18 @@ export default function Topbar({
                   <DevicesIcon size={14} />
                   <span>Connected devices…</span>
                 </button>
+
+                <a
+                  href={VAULT_ANDROID_RELEASE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="dropdown-item"
+                  role="menuitem"
+                  onClick={() => setUserMenuOpen(false)}
+                >
+                  <AndroidIcon size={14} />
+                  <span>Download Android APK (v1.0.0)…</span>
+                </a>
 
                 <div className="dropdown-divider" role="separator" />
 

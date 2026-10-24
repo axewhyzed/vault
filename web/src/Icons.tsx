@@ -566,4 +566,19 @@ export function DevicesIcon({ className = '', size = 16 }: IconProps) {
   );
 }
 
+export function AndroidIcon({ className = '', size = 16 }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      width={size}
+      height={size}
+    >
+      <path d="M17.52 15.34c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1m-11.04 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1m11.4-6.02l1.99-3.45a.416.416 0 0 0-.15-.57.416.416 0 0 0-.57.15l-2.02 3.5C15.59 8.41 13.85 8.08 12 8.08s-3.59.33-5.14.87L4.84 5.45a.416.416 0 0 0-.57-.15.416.416 0 0 0-.15.57l2 3.46C2.69 11.19.34 14.66 0 18.76h24c-.34-4.1-2.69-7.57-6.12-9.44" />
+    </svg>
+  );
+}
+
 

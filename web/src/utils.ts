@@ -110,3 +110,5 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     return false;
   }
 }
+
+export const VAULT_ANDROID_RELEASE_URL = 'https://github.com/axewhyzed/vault/releases/latest';
