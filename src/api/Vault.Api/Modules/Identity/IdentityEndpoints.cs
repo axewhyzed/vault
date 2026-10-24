@@ -164,8 +164,7 @@ internal static class IdentityEndpoints
         Guid.TryParse(principal.FindFirstValue(claim), out var value) ? value : Guid.Empty;
 
     internal static async Task<bool> LockOwnerAsync(VaultDbContext database, Guid userId, CancellationToken cancellationToken) =>
-        userId != Guid.Empty && await database.Users.Where(user => user.Id == userId && user.Status == "active")
-            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.Status, user => user.Status), cancellationToken) == 1;
+        await database.LockOwnerAsync(userId, cancellationToken);
 
     internal sealed record LoginRequest(string Password, string? Identifier = null, string? Email = null, string? Username = null)
     {
@@ -187,8 +186,6 @@ internal sealed class CredentialAttemptLimiter
 {
     private readonly object _gate = new();
     private readonly Dictionary<string, (DateTimeOffset Start, int Count)> _byIp = new(StringComparer.Ordinal);
-    private DateTimeOffset _globalStart = DateTimeOffset.UtcNow;
-    private int _globalCount;
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(15);
     public VaultUser DummyUser { get; }
 
@@ -202,17 +199,14 @@ internal sealed class CredentialAttemptLimiter
         lock (_gate)
         {
             var now = DateTimeOffset.UtcNow;
-            if (now - _globalStart >= Window) { _globalStart = now; _globalCount = 0; }
             if (!_byIp.TryGetValue(ip, out var bucket) || now - bucket.Start >= Window) bucket = (now, 0);
-            var globalBlocked = _globalCount >= 30;
             var ipBlocked = bucket.Count >= 5;
-            if (globalBlocked || ipBlocked)
+            if (ipBlocked)
             {
-                var resetAt = globalBlocked ? _globalStart + Window : bucket.Start + Window;
+                var resetAt = bucket.Start + Window;
                 retryAfterSeconds = Math.Max(1, (int)Math.Ceiling((resetAt - now).TotalSeconds));
                 return false;
             }
-            _globalCount++;
             _byIp[ip] = (bucket.Start, bucket.Count + 1);
             foreach (var key in _byIp.Where(pair => now - pair.Value.Start >= Window).Select(pair => pair.Key).ToArray()) _byIp.Remove(key);
             if (_byIp.Count > 4096)

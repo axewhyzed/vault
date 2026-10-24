@@ -132,3 +132,10 @@ public sealed class VaultDbContext(DbContextOptions<VaultDbContext> options) : D
         });
     }
 }
+
+public static class VaultDbExtensions
+{
+    public static async Task<bool> LockOwnerAsync(this VaultDbContext db, Guid userId, CancellationToken ct) =>
+        userId != Guid.Empty && await db.Users.Where(user => user.Id == userId && user.Status == "active")
+            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.Status, user => user.Status), ct) == 1;
+}

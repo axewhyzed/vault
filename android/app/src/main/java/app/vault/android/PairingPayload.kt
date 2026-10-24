@@ -15,7 +15,7 @@ data class PairingPayload(
     fun toDeepLink(): String = "vault://pair?serverOrigin=${enc(serverOrigin)}&pairingSessionId=${enc(pairingSessionId)}"
 
     companion object {
-        fun parse(raw: String, expectedServerOrigin: String): PairingPayload {
+        fun parse(raw: String, expectedServerOrigin: String? = null): PairingPayload {
             val value = raw.trim()
             require(value.isNotEmpty()) { "Paste a pairing QR or link." }
             val payload = if (value.startsWith("vault://", true)) parseLink(value) else parseQr(value)
@@ -25,9 +25,11 @@ data class PairingPayload(
             require(payload.pairingSessionId.matches(Regex("[0-9a-fA-F-]{36}"))) { "Invalid pairing session." }
             require(payload.pairingSecret == null || payload.pairingSecret.matches(Regex("[A-Za-z0-9_-]{43}"))) { "Invalid pairing secret." }
             val normalizedOrigin = uri.toASCIIString().trimEnd('/')
-            val configured = URI(expectedServerOrigin)
-            require(configured.scheme == "https" && configured.host != null && configured.userInfo == null && configured.path.orEmpty() in listOf("", "/") && configured.query == null && configured.fragment == null) { "App server origin is misconfigured." }
-            require(normalizedOrigin.equals(configured.toASCIIString().trimEnd('/'), ignoreCase = true)) { "This pairing code belongs to a different Vault server." }
+            if (!expectedServerOrigin.isNullOrBlank()) {
+                val configured = URI(expectedServerOrigin)
+                require(configured.scheme == "https" && configured.host != null && configured.userInfo == null && configured.path.orEmpty() in listOf("", "/") && configured.query == null && configured.fragment == null) { "App server origin is misconfigured." }
+                require(normalizedOrigin.equals(configured.toASCIIString().trimEnd('/'), ignoreCase = true)) { "This pairing code belongs to a different Vault server." }
+            }
             payload.expiresAt?.let { expiry ->
                 val expires = try { Instant.parse(expiry) } catch (_: Exception) { throw IllegalArgumentException("Pairing QR has an invalid expiry time.") }
                 val now = Instant.now()

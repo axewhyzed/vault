@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { CheckIcon, CloseIcon, CopyIcon, ExternalLinkIcon, QrCodeIcon, RefreshIcon } from './Icons';
+import { useFocusTrap } from './useFocusTrap';
+import { copyToClipboard } from './utils';
+import type { DeviceListResponse } from './types';
 
 type Csrf = { token: string; headerName: 'X-CSRF-TOKEN' };
 type PairingSession = { pairingSessionId: string; pairingSecret: string; serverOrigin: string; expiresAt: string };
@@ -28,15 +31,19 @@ type Props = {
   isOpen: boolean;
   onClose: () => void;
   onUnauthorized: () => void;
+  onDevicePaired?: () => void;
 };
 
-export default function PairDeviceModal({ isOpen, onClose, onUnauthorized }: Props) {
+export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDevicePaired }: Props) {
+  const modalRef = useFocusTrap(isOpen, onClose);
   const [pairing, setPairing] = useState<PairingSession | null>(null);
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState(false);
   const [secretCopied, setSecretCopied] = useState(false);
+  const [pairedSuccess, setPairedSuccess] = useState(false);
+  const initialDeviceIdsRef = useRef<Set<string>>(new Set());
   const requestRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
 
@@ -83,17 +90,67 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized }: Pro
     };
   }, [pairing]);
 
-  // Handle escape key
   useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
+    if (!isOpen) {
+      setPairedSuccess(false);
+      initialDeviceIdsRef.current.clear();
+      return;
+    }
+    const fetchInitial = async () => {
+      try {
+        const res = await fetch(`${API}/devices`, {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+        });
+        if (res.ok) {
+          const data = await readJson<DeviceListResponse>(res);
+          if (data?.devices) {
+            initialDeviceIdsRef.current = new Set(data.devices.map((d) => d.id));
+          }
+        }
+      } catch {
+        // ignore
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+    void fetchInitial();
+  }, [isOpen]);
+
+  // Poll for Android pairing completion
+  useEffect(() => {
+    if (!isOpen || !pairing || pairedSuccess) return undefined;
+    const pollInterval = window.setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/devices`, {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+        });
+        if (res.status === 401) {
+          onUnauthorized();
+          return;
+        }
+        if (res.ok) {
+          const data = await readJson<DeviceListResponse>(res);
+          const hasNew = data?.devices?.some((d) => !initialDeviceIdsRef.current.has(d.id));
+          if (hasNew) {
+            setPairedSuccess(true);
+            setPairing(null);
+            setMessage('Device successfully linked to your Vault!');
+            setError(false);
+            window.setTimeout(() => {
+              onDevicePaired?.();
+              onClose();
+            }, 1400);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }, 2500);
+
+    return () => window.clearInterval(pollInterval);
+  }, [isOpen, pairing, pairedSuccess, onClose, onUnauthorized, onDevicePaired]);
 
   async function createPairing() {
     if (busy) return;
@@ -157,14 +214,10 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized }: Pro
 
   async function copySecret() {
     if (!pairing?.pairingSecret) return;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(pairing.pairingSecret);
-        setSecretCopied(true);
-        setTimeout(() => setSecretCopied(false), 2500);
-      }
-    } catch {
-      // Fallback
+    const ok = await copyToClipboard(pairing.pairingSecret);
+    if (ok) {
+      setSecretCopied(true);
+      setTimeout(() => setSecretCopied(false), 2500);
     }
   }
 
@@ -173,6 +226,8 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized }: Pro
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div
+        ref={modalRef}
+        tabIndex={-1}
         className="modal-card modal-card--pairing"
         role="dialog"
         aria-modal="true"
@@ -218,7 +273,7 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized }: Pro
               />
             </div>
 
-            <div className="pairing-countdown" role="timer" aria-label={`Code expires in ${formatRemaining(remaining)}`}>
+            <div className="pairing-countdown font-mono tabular-nums" role="timer" aria-label={`Code expires in ${formatRemaining(remaining)}`}>
               <span className="status-dot-pulse" aria-hidden="true" />
               <span>Expires in <strong>{formatRemaining(remaining)}</strong></span>
             </div>

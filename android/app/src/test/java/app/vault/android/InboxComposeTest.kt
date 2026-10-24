@@ -142,25 +142,6 @@ class InboxComposeTest {
         assertEquals(1, discarded)
     }
 
-    @Test fun pairingEntryRequiresInputAndExposesContinueAndScanActions() {
-        var continued = 0
-        var scanned = 0
-        compose.setContent {
-            MaterialTheme {
-                var value by remember { mutableStateOf("") }
-                PairingCodeEntry(value, { value = it }, { continued++ }, { scanned++ })
-            }
-        }
-
-        compose.onNodeWithText("Continue").assertIsNotEnabled()
-        compose.onNodeWithText("Pairing QR data or vault://pair link").performTextInput("vault://pair?data")
-        compose.onNodeWithText("Continue").performClick()
-        compose.onNodeWithText("Scan QR").performClick()
-
-        assertEquals(1, continued)
-        assertEquals(1, scanned)
-    }
-
     @Test fun welcomeScreenExposesScanQrAndSignInActions() {
         var scanned = 0
         var loggedIn = 0

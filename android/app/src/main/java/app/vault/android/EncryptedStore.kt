@@ -26,6 +26,7 @@ data class CachedInbox(
 )
 
 class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCrypto()) {
+    val appCacheDir: File = context.cacheDir
     private val root = File(context.filesDir, "vault-private").apply { mkdirs() }
     private val drafts = File(root, "drafts").apply { mkdirs() }
     private val blobs = File(root, "spool").apply { mkdirs() }

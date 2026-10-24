@@ -72,14 +72,33 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
 
-      - name: Prepare Release APK Asset
+      - name: Decode Release Keystore
+        if: (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)) && env.KEYSTORE_PRESENT == 'true'
+        env:
+          KEYSTORE_PRESENT: ${{ secrets.VAULT_KEYSTORE_BASE64 != '' }}
+          VAULT_KEYSTORE_BASE64: ${{ secrets.VAULT_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p android/keystore
+          echo "$VAULT_KEYSTORE_BASE64" | base64 -d > android/keystore/release.jks
+          echo "VAULT_KEYSTORE_PATH=$GITHUB_WORKSPACE/android/keystore/release.jks" >> $GITHUB_ENV
+          echo "VAULT_KEYSTORE_PASSWORD=${{ secrets.VAULT_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "VAULT_KEY_ALIAS=${{ secrets.VAULT_KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "VAULT_KEY_PASSWORD=${{ secrets.VAULT_KEY_PASSWORD }}" >> $GITHUB_ENV
+
+      - name: Build Release APK
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+        run: |
+          android/gradlew --no-daemon --console=plain -p android assembleRelease
+
+      - name: Prepare Release APK Assets
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
         run: |
           TAG="${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag_name }}"
           if [ -z "$TAG" ]; then
-            TAG="v0.1.0-$(date +%Y%m%d%H%M)"
+            TAG="v1.0.0"
           fi
           echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
+          cp android/app/build/outputs/apk/release/app-release.apk "vault-${TAG}.apk"
           cp android/app/build/outputs/apk/debug/app-debug.apk "vault-debug-${TAG}.apk"
 
       - name: Publish GitHub Release
@@ -88,5 +107,6 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: Vault Android ${{ env.RELEASE_TAG }}
-          files: vault-debug-*.apk
+          files: |
+            vault-*.apk
           generate_release_notes: true

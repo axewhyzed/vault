@@ -1,9 +1,10 @@
 import type { ItemDetail } from '../types';
-import { formatBytes, formatDate } from '../utils';
+import { formatBytes, formatDate, isSafeHttpUrl } from '../utils';
 import {
   ArrowLeftIcon,
   CopyIcon,
   DownloadIcon,
+  ExternalLinkIcon,
   ItemTypeIcon,
   TrashIcon,
 } from '../Icons';
@@ -95,25 +96,57 @@ export default function ItemDetailPanel({
             </div>
 
             {detail.type === 'file' ? (
-              <dl className="detail-meta file-detail-meta">
-                <div>
-                  <dt>File type</dt>
-                  <dd>{detail.contentType}</dd>
-                </div>
-                <div>
-                  <dt>SHA-256</dt>
-                  <dd>
-                    <code>{detail.sha256}</code>
-                  </dd>
-                </div>
-              </dl>
+              <>
+                <dl className="detail-meta file-detail-meta font-mono tabular-nums">
+                  <div>
+                    <dt>File type</dt>
+                    <dd>{detail.contentType}</dd>
+                  </div>
+                  <div>
+                    <dt>SHA-256</dt>
+                    <dd>
+                      <code>{detail.sha256}</code>
+                    </dd>
+                  </div>
+                </dl>
+                {detail.contentType &&
+                ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'].includes(detail.contentType) &&
+                detail.downloadUrl && (
+                  <div className="detail-image-preview">
+                    <img
+                      src={detail.downloadUrl}
+                      alt={detail.displayName || 'Attachment preview'}
+                      loading="lazy"
+                    />
+                  </div>
+                )}
+              </>
+            ) : detail.type === 'url' ? (
+              <div className="detail-url-box">
+                {isSafeHttpUrl(detail.text) ? (
+                  <a
+                    href={detail.text ?? undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="detail-url-link"
+                  >
+                    <span className="detail-url-text">{detail.text}</span>
+                    <ExternalLinkIcon size={14} className="detail-url-icon" />
+                  </a>
+                ) : (
+                  <div className="detail-url-unsafe">
+                    <span className="detail-url-text">{detail.text}</span>
+                    <span className="detail-url-warning">Untrusted link scheme</span>
+                  </div>
+                )}
+              </div>
             ) : (
               <pre className="detail-text" tabIndex={0} aria-label="Saved item text">
                 {detail.text}
               </pre>
             )}
 
-            <dl className="detail-meta">
+            <dl className="detail-meta font-mono tabular-nums">
               <div>
                 <dt>Sent from</dt>
                 <dd>

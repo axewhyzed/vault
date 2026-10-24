@@ -50,23 +50,10 @@ internal static class TransferEndpoints
         if (!Guid.TryParseExact(keyText, "D", out var key) || key == Guid.Empty)
             return Error(context, 400, "invalid_idempotency_key", "Idempotency-Key must be a UUID.");
 
-        TimeSpan retentionDuration;
-        int retentionFingerprintHours;
-        if (suppliedRetentionHours is not null)
-        {
-            if (suppliedRetentionHours < 1 || suppliedRetentionHours > 168)
-                return Error(context, 422, "invalid_retention", "Retention must be between 1 and 168 hours.");
-            retentionDuration = TimeSpan.FromHours(suppliedRetentionHours.Value);
-            retentionFingerprintHours = suppliedRetentionHours.Value;
-        }
-        else
-        {
-            if (suppliedRetentionDays is < 1 or > 7)
-                return Error(context, 422, "invalid_retention", "Retention must be between 1 and 7 days.");
-            var days = suppliedRetentionDays ?? 7;
-            retentionDuration = TimeSpan.FromDays(days);
-            retentionFingerprintHours = days * 24;
-        }
+        if (!RetentionPolicy.TryParse(suppliedRetentionDays, suppliedRetentionHours, out var retention, out var retentionError))
+            return Error(context, 422, "invalid_retention", retentionError!);
+        var retentionDuration = retention.Duration;
+        var retentionFingerprintHours = retention.FingerprintHours;
 
         string content;
         string displayName;
@@ -95,7 +82,7 @@ internal static class TransferEndpoints
         var route = type == "text" ? "/api/v1/items/text" : "/api/v1/items/url";
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        if (!await LockOwnerAsync(db, userId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
+        if (!await db.LockOwnerAsync(userId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
         var previous = await db.ItemIdempotencyRecords.AsNoTracking().SingleOrDefaultAsync(x => x.UserId == userId && x.Route == route && x.Key == key, ct);
         if (previous is not null)
         {
@@ -163,10 +150,8 @@ internal static class TransferEndpoints
     {
         var userId = IdentityEndpoints.GetGuid(context.User, "userId");
         var deviceId = IdentityEndpoints.GetGuid(context.User, "deviceId");
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        if (!await LockOwnerAsync(db, userId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
-        var row = await (from item in db.Items
-                         join device in db.Devices on item.CreatedByDeviceId equals device.Id
+        var row = await (from item in db.Items.AsNoTracking()
+                         join device in db.Devices.AsNoTracking() on item.CreatedByDeviceId equals device.Id
                          where item.Id == id && item.OwnerUserId == userId
                          select new { item, device }).SingleOrDefaultAsync(ct);
         if (row is null) return Error(context, 404, "item_not_found", "The item was not found.");
@@ -182,7 +167,6 @@ internal static class TransferEndpoints
             row.item.Type == "file" ? await db.UploadSessions.Where(x => x.ItemId == row.item.Id).Select(x => x.Sha256).SingleOrDefaultAsync(ct) : null);
         db.AuditEvents.Add(Audit("item_read", userId, deviceId, id, context, now));
         await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
         return Results.Ok(snapshot);
     }
 
@@ -193,7 +177,7 @@ internal static class TransferEndpoints
         var userId = IdentityEndpoints.GetGuid(context.User, "userId");
         var deviceId = IdentityEndpoints.GetGuid(context.User, "deviceId");
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        if (!await LockOwnerAsync(db, userId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
+        if (!await db.LockOwnerAsync(userId, ct)) return Error(context, 401, "unauthorized", "Authentication is required.");
         var item = await db.Items.SingleOrDefaultAsync(x => x.Id == id && x.OwnerUserId == userId, ct);
         if (item is not null && item.State == "available")
         {
@@ -210,9 +194,6 @@ internal static class TransferEndpoints
         if (session is not null) files.DeleteObject(session.StorageKey);
         return Results.NoContent();
     }
-
-    private static async Task<bool> LockOwnerAsync(VaultDbContext db, Guid userId, CancellationToken ct) =>
-        await db.Users.Where(x => x.Id == userId && x.Status == "active").ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, x => x.Status), ct) == 1;
 
     private static VaultAuditEvent Audit(string type, Guid userId, Guid deviceId, Guid itemId, HttpContext context, DateTime at) => new()
     {

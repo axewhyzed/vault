@@ -41,6 +41,7 @@ type InboxListProps = {
   onQuickDownload: (item: ItemSummary, e: MouseEvent) => void;
   onQuickCopy: (item: ItemSummary, e: MouseEvent) => void;
   onQuickDelete: (id: string, e: MouseEvent) => void;
+  selectedId?: string | null;
 };
 
 export default function InboxList({
@@ -67,6 +68,7 @@ export default function InboxList({
   onQuickDownload,
   onQuickCopy,
   onQuickDelete,
+  selectedId,
 }: InboxListProps) {
   return (
     <>
@@ -188,54 +190,52 @@ export default function InboxList({
         {filteredItems.map((item) => {
           const isConfirmingDelete = rowDeleteConfirmId === item.id;
           const isCopied = copiedItemId === item.id;
+          const isSelected = selectedId === item.id;
 
           return (
             <li key={item.id}>
-              <div
-                className="item-row"
-                onClick={() => onOpenItem(item.id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onOpenItem(item.id);
-                  }
-                }}
-              >
-                <span className={`item-type-badge item-type-badge--${item.type}`} aria-hidden="true">
-                  <ItemTypeIcon type={item.type} size={15} />
-                </span>
+              <div className={`item-row ${isSelected ? 'is-selected' : ''}`}>
+                <button
+                  type="button"
+                  className="item-row-main-btn"
+                  onClick={() => onOpenItem(item.id)}
+                  aria-label={`Open ${item.displayName?.trim() || item.type} details`}
+                >
+                  <span className={`item-type-badge item-type-badge--${item.type}`} aria-hidden="true">
+                    <ItemTypeIcon type={item.type} size={15} />
+                  </span>
 
-                <div className="item-row-content">
-                  <div className="item-row-title-line">
-                    <strong className="item-title">
-                      {item.displayName?.trim() ||
-                        (item.type === 'url'
-                          ? 'Saved link'
-                          : item.type === 'file'
-                            ? 'File attachment'
-                            : 'Text note')}
-                    </strong>
+                  <div className="item-row-content">
+                    <div className="item-row-title-line">
+                      <strong className="item-title">
+                        {item.displayName?.trim() ||
+                          (item.type === 'url'
+                            ? 'Saved link'
+                            : item.type === 'file'
+                              ? 'File attachment'
+                              : 'Text note')}
+                      </strong>
+                    </div>
+                    <div className="item-row-meta-line font-mono tabular-nums">
+                      <span className="device-tag">
+                        {item.sourceDevice.platform === 'android' ? 'Android' : 'Web'}
+                      </span>
+                      <span className="meta-dot">·</span>
+                      <span>{formatRelativeTime(item.createdAt)}</span>
+                      <span className="meta-dot">·</span>
+                      <span>{formatBytes(item.sizeBytes)}</span>
+                      <span className="meta-dot">·</span>
+                      <span className="expiry-tag">{formatExpiry(item.expiresAt)}</span>
+                    </div>
                   </div>
-                  <div className="item-row-meta-line">
-                    <span className="device-tag">
-                      {item.sourceDevice.platform === 'android' ? 'Android' : 'Web'}
-                    </span>
-                    <span className="meta-dot">·</span>
-                    <span>{formatRelativeTime(item.createdAt)}</span>
-                    <span className="meta-dot">·</span>
-                    <span>{formatBytes(item.sizeBytes)}</span>
-                    <span className="meta-dot">·</span>
-                    <span className="expiry-tag">{formatExpiry(item.expiresAt)}</span>
-                  </div>
-                </div>
+                </button>
 
-                {/* Quick Hover Micro-Actions */}
+                {/* Quick Micro-Actions (non-nested sibling elements) */}
                 <div className="item-micro-actions" onClick={(e) => e.stopPropagation()}>
                   {item.type === 'file' ? (
                     <button
                       type="button"
+                      tabIndex={0}
                       className="micro-action-btn"
                       onClick={(e) => onQuickDownload(item, e)}
                       title="Download attachment"
@@ -246,6 +246,7 @@ export default function InboxList({
                   ) : (
                     <button
                       type="button"
+                      tabIndex={0}
                       className={`micro-action-btn ${isCopied ? 'is-copied' : ''}`}
                       onClick={(e) => void onQuickCopy(item, e)}
                       title={isCopied ? 'Copied!' : 'Copy to clipboard'}
@@ -282,6 +283,7 @@ export default function InboxList({
                   ) : (
                     <button
                       type="button"
+                      tabIndex={0}
                       className="micro-action-btn micro-action-btn--danger"
                       onClick={(e) => void onQuickDelete(item.id, e)}
                       title="Delete item"
@@ -293,6 +295,7 @@ export default function InboxList({
 
                   <button
                     type="button"
+                    tabIndex={0}
                     className="micro-action-btn"
                     onClick={() => onOpenItem(item.id)}
                     title="Open details"

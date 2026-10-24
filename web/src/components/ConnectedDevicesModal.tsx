@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { DeviceSummary, DeviceListResponse, Csrf } from '../types';
+import { useFocusTrap } from '../useFocusTrap';
 import {
   CloseIcon,
   DevicesIcon,
@@ -87,23 +88,20 @@ export default function ConnectedDevicesModal({
     }
   }
 
+  const modalRef = useFocusTrap(isOpen, onClose);
+
   useEffect(() => {
     if (!isOpen) return;
     void fetchDevices();
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, fetchDevices, onClose]);
+  }, [isOpen, fetchDevices]);
 
   if (!isOpen) return null;
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div
+        ref={modalRef}
+        tabIndex={-1}
         className="modal-card modal-card--devices"
         role="dialog"
         aria-modal="true"

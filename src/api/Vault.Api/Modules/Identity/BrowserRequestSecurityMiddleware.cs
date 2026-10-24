@@ -6,6 +6,10 @@ internal sealed class BrowserRequestSecurityMiddleware(RequestDelegate next, ICo
 {
     public async Task InvokeAsync(HttpContext context)
     {
+        context.Response.Headers["X-Frame-Options"] = "DENY";
+        context.Response.Headers["Content-Security-Policy"] = "frame-ancestors 'none'; default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self';";
+        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+
         var path = context.Request.Path;
         var isLogin = string.Equals(path.Value, "/api/v1/auth/login", StringComparison.OrdinalIgnoreCase);
         if (path.StartsWithSegments("/api/v1/items", StringComparison.OrdinalIgnoreCase))

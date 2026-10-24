@@ -20,6 +20,8 @@ cleanup() {
   if [[ -n "$WORK_DIR" && -d "$WORK_DIR" ]]; then
     rm -rf -- "$WORK_DIR"
   fi
+  flock -u 8 2>/dev/null || true
+  exec 8<&- 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -72,7 +74,7 @@ main() {
   STAGE=maintenance-lock
   touch /run/vault-maintenance/maintenance.lock
   exec 8<>/run/vault-maintenance/maintenance.lock
-  flock -x 8
+  flock -x -w 300 8 || die "timed out waiting 300 seconds for exclusive file maintenance lock"
   log "exclusive file maintenance lock acquired; PostgreSQL and volume will be captured without API file mutations or a concurrent backup"
 
   STAGE=database-connectivity
@@ -81,22 +83,20 @@ main() {
   [[ -n "$schema_version" ]] || die "the EF migration history table is empty"
   export VAULT_SCHEMA_VERSION="$schema_version"
 
+  STAGE=repository-connectivity
+  restic unlock >/dev/null 2>&1 || true
+  restic cat config >/dev/null
+
   if [[ "$mode" == check ]]; then
-    STAGE=repository-connectivity
-    restic cat config >/dev/null
     log "config check passed (target=${VAULT_BACKUP_TARGET}, schema=${VAULT_SCHEMA_VERSION}, file_objects=$(find /vault-files -type f -print | wc -l | tr -d ' '), data_protection_keys=$(find /data-protection-keys -type f -print | wc -l | tr -d ' '))"
     return 0
   fi
 
   if [[ "$mode" == dry-run ]]; then
-    STAGE=repository-connectivity
-    restic cat config >/dev/null
     log "dry run passed; would dump PostgreSQL database ${PGDATABASE}, back up the read-only file and Data Protection volumes, and write encrypted snapshot metadata (commit=${VAULT_DEPLOYED_COMMIT_SHA}, schema=${VAULT_SCHEMA_VERSION})"
     return 0
   fi
 
-  STAGE=repository-connectivity
-  restic cat config >/dev/null
   WORK_DIR="$(mktemp -d /tmp/vault-backup.XXXXXX)"
   mkdir -p "$WORK_DIR/stage"
   local dump="$WORK_DIR/stage/database.dump"

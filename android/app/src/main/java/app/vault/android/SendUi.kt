@@ -26,6 +26,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import java.net.URI
 
 internal enum class ComposeKind { TEXT, LINK, FILE }
@@ -285,7 +287,7 @@ internal fun SendComposerScreen(
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(file.displayName, style = MaterialTheme.typography.titleMedium)
-                                Text("${file.contentType} · ${formatFileSize(file.sizeBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("${file.contentType} · ${formatBytes(file.sizeBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -331,7 +333,7 @@ internal fun ReviewSendScreen(
             Text(when (kind) { ComposeKind.TEXT -> "Text"; ComposeKind.LINK -> "Link"; ComposeKind.FILE -> "File" }, color = MaterialTheme.colorScheme.primary)
             Text(draft.displayName, style = MaterialTheme.typography.titleLarge)
             if (kind == ComposeKind.FILE) {
-                Text("${draft.contentType} · ${formatFileSize(draft.sizeBytes)}")
+                Text("${draft.contentType} · ${formatBytes(draft.sizeBytes)}")
                 Text("This file will be verified before it is available in Vault.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 Surface(Modifier.fillMaxWidth(), tonalElevation = 1.dp, shape = MaterialTheme.shapes.medium) {
@@ -407,9 +409,16 @@ internal fun ReviewSendScreen(
                 }
             }
         }
+        val haptics = LocalHapticFeedback.current
         Surface(tonalElevation = 2.dp) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onSend(retentionDays, retentionHours) }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Send to Vault") }
+                Button(
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onSend(retentionDays, retentionHours)
+                    },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                ) { Text("Send to Vault") }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { onEdit(retentionDays, retentionHours) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Edit") }
                     TextButton(onClick = { discardConfirm = true }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Discard") }
@@ -443,68 +452,7 @@ internal fun ReviewSendScreen(
     modifier = modifier,
 )
 
-@Composable
-internal fun ActivityScreen(
-    drafts: List<Draft>,
-    onReview: (String) -> Unit,
-    onRetry: (Draft) -> Unit,
-    onRemove: (Draft) -> Unit,
-    onStartSend: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    if (drafts.isEmpty()) {
-        Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Activity", style = MaterialTheme.typography.headlineSmall)
-            Text("Your sends will appear here after you review them.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(onClick = onStartSend, modifier = Modifier.heightIn(min = 48.dp)) { Text("Send something") }
-        }
-        return
-    }
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Your sends", style = MaterialTheme.typography.titleLarge)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(drafts, key = { it.id }) { draft ->
-                ActivityRow(draft, onReview = { onReview(draft.id) }, onRetry = { onRetry(draft) }, onRemove = { onRemove(draft) })
-            }
-        }
-    }
-}
-
-@Composable
-internal fun ActivityRow(draft: Draft, onReview: () -> Unit = {}, onRetry: () -> Unit = {}, onRemove: () -> Unit = {}) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(draft.displayName, style = MaterialTheme.typography.titleMedium)
-            val stateLabel = when (draft.state) {
-                DraftState.PREPARED -> "Needs review"
-                DraftState.QUEUED -> "Waiting to send"
-                DraftState.UPLOADING -> "Sending · ${percentSent(draft)}%"
-                DraftState.RETRYING -> "Retrying"
-                DraftState.AVAILABLE -> "Sent to Vault"
-                DraftState.FAILED -> "Needs attention"
-            }
-            Text(stateLabel, color = if (draft.state == DraftState.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-            if (draft.state == DraftState.UPLOADING && draft.sizeBytes > 0) LinearProgressIndicator(progress = { (draft.bytesSent.toFloat() / draft.sizeBytes).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-            draft.safeError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            when (draft.state) {
-                DraftState.PREPARED -> Button(onClick = onReview, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Review send") }
-                DraftState.FAILED -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onRetry, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Retry") }
-                    OutlinedButton(onClick = onRemove, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Remove") }
-                }
-                else -> Text("Keep for ${draft.retentionDays} day${if (draft.retentionDays == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-}
-
 private fun percentSent(draft: Draft): Int = if (draft.sizeBytes <= 0) 0 else ((draft.bytesSent.coerceIn(0, draft.sizeBytes) * 100) / draft.sizeBytes).toInt()
-
-private fun formatFileSize(bytes: Long): String = when {
-    bytes < 1_024 -> "$bytes B"
-    bytes < 1_048_576 -> "${bytes / 1_024} KB"
-    else -> "${bytes / 1_048_576} MB"
-}
 
 internal fun DraftContentKind.toComposeKind(text: String?): ComposeKind = when (this) {
     DraftContentKind.TEXT -> ComposeKind.TEXT

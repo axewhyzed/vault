@@ -51,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -261,6 +263,7 @@ internal fun InboxTab(
     onCacheRefreshed: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var rows by remember(ownerKey) { mutableStateOf<List<InboxSummary>>(emptyList()) }
     var nextCursor by remember(ownerKey) { mutableStateOf<String?>(null) }
@@ -429,6 +432,11 @@ internal fun InboxTab(
         selected = null; detailId = null; detailError = null; showOperationMessage(null)
     }
 
+    BackHandler(selected == null && !detailLoading && detailId == null && (searchQuery.isNotEmpty() || filterType != "all")) {
+        searchQuery = ""
+        filterType = "all"
+    }
+
     val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val file = downloadFile
         val filename = downloadName
@@ -463,7 +471,8 @@ internal fun InboxTab(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp)
+            .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (detail != null || detailLoading || detailId != null) {
@@ -483,6 +492,7 @@ internal fun InboxTab(
                         else {
                             val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Vault item", value))
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             showOperationMessage("Copied to clipboard.")
                         }
                     },
@@ -632,7 +642,10 @@ internal fun InboxTab(
                 },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
+                        IconButton(
+                            onClick = { searchQuery = "" },
+                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        ) {
                             Icon(Icons.Filled.Clear, contentDescription = "Clear search")
                         }
                     }
@@ -700,33 +713,65 @@ internal fun InboxTab(
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f)
                         )
-                        IconButton(onClick = { showOperationMessage(null) }, modifier = Modifier.size(24.dp)) {
+                        IconButton(
+                            onClick = { showOperationMessage(null) },
+                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        ) {
                             Icon(Icons.Filled.Close, contentDescription = "Dismiss notice", modifier = Modifier.size(16.dp))
                         }
                     }
                 }
             }
-            if (pageLoading && !hasLoaded) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    repeat(3) {
-                        InboxSkeletonCard()
+            PullToRefreshBox(
+                isRefreshing = pageLoading,
+                onRefresh = { scope.launch { fetchPage(reset = true) } },
+                modifier = Modifier.weight(1f)
+            ) {
+                if (pageLoading && !hasLoaded) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        repeat(3) {
+                            InboxSkeletonCard()
+                        }
                     }
-                }
-            }
-            pageError?.let { error ->
-                Text(error, color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = { scope.launch { fetchPage(reset = pageRetryReset) } }, enabled = !pageLoading, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry") }
-            }
-            if (hasLoaded) {
-                PullToRefreshBox(
-                    isRefreshing = pageLoading,
-                    onRefresh = { scope.launch { fetchPage(reset = true) } },
-                    modifier = Modifier.weight(1f)
-                ) {
+                } else if (pageError != null && !hasLoaded) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(pageError ?: "", color = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(
+                            onClick = { scope.launch { fetchPage(reset = pageRetryReset) } },
+                            enabled = !pageLoading,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text("Retry")
+                        }
+                    }
+                } else {
                     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        pageError?.let { error ->
+                            item(key = "inbox-page-error") {
+                                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Text(error, color = MaterialTheme.colorScheme.error)
+                                    TextButton(
+                                        onClick = { scope.launch { fetchPage(reset = pageRetryReset) } },
+                                        enabled = !pageLoading,
+                                        modifier = Modifier.heightIn(min = 48.dp)
+                                    ) {
+                                        Text("Retry")
+                                    }
+                                }
+                            }
+                        }
                         if (searchQuery.isBlank()) {
                             quota?.let { q ->
                                 item(key = "inbox-quota-card") {
@@ -793,10 +838,12 @@ private fun InboxRow(
     onClick: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
     var showConfirmDelete by remember { mutableStateOf(false) }
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             if (value == SwipeToDismissBoxValue.EndToStart) {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 showConfirmDelete = true
             }
             false
