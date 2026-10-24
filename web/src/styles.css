@@ -291,6 +291,9 @@ button:disabled { cursor: not-allowed; }
 
 /* Center: Storage Pill Meter */
 .storage-pill {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -302,6 +305,7 @@ button:disabled { cursor: not-allowed; }
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   cursor: default;
   transition: all 150ms ease;
+  z-index: 10;
 }
 
 .storage-pill:hover {
@@ -867,7 +871,9 @@ button:disabled { cursor: not-allowed; }
   min-width: 0;
   height: 100%;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .mobile-compose-toggle {
@@ -878,27 +884,55 @@ button:disabled { cursor: not-allowed; }
    Compose Hub (Unified Card)
    -------------------------------------------------------------------------- */
 .compose-hub-card {
+  height: 100%;
+  min-height: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--card);
   box-shadow: var(--shadow-card);
-  padding: 18px 20px 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .compose-hub-header {
+  flex: none;
+  height: 58px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+}
+
+.compose-hub-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .compose-hub-heading h2 {
-  margin: 2px 0 0;
-  font-size: 19px;
-  font-weight: 680;
-  letter-spacing: -0.5px;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
   color: var(--ink);
+}
+
+.compose-hub-heading .card-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--tab-bg);
+  border: 1px solid var(--line);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .compose-retention-pill {
@@ -962,13 +996,22 @@ button:disabled { cursor: not-allowed; }
   color: var(--muted);
 }
 
-/* Segmented Tabs with Pill Indicator */
+/* Segmented Tabs Bar */
+.compose-tabs-bar {
+  flex: none;
+  height: 44px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line-light);
+  background: var(--hover-bg);
+}
+
 .compose-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  display: inline-flex;
+  align-items: center;
   gap: 3px;
-  padding: 3px;
-  margin-bottom: 16px;
+  padding: 2px;
   border-radius: 6px;
   background: var(--tab-bg);
   border: 1px solid var(--line);
@@ -979,12 +1022,13 @@ button:disabled { cursor: not-allowed; }
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 34px;
+  height: 26px;
+  padding: 0 12px;
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   transition: all 140ms ease;
@@ -1016,12 +1060,34 @@ button:disabled { cursor: not-allowed; }
 }
 
 .compose-tab-panel {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  padding: 16px 18px;
+  overflow-y: auto;
 }
 
 .compose-tab-panel .field-group {
   margin-bottom: 12px;
+}
+
+.compose-tab-panel .field-group:first-child {
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+}
+
+.compose-tab-panel textarea {
+  flex: 1;
+  min-height: 110px;
+  resize: none;
+}
+
+.compose-actions {
+  margin-top: auto;
+  padding-top: 14px;
 }
 
 .compose-meta-row {
@@ -1278,12 +1344,16 @@ button:disabled { cursor: not-allowed; }
 
 .items-heading {
   flex: none;
-  padding: 12px 16px;
+  height: 58px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--line);
   background: var(--card);
 }
 
 .inbox-toolbar-row {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1390,10 +1460,12 @@ button:disabled { cursor: not-allowed; }
 
 /* Filter bar */
 .filter-bar {
+  flex: none;
+  height: 44px;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--line-light);
   background: var(--hover-bg);
   overflow-x: auto;
@@ -2443,6 +2515,13 @@ button:disabled { cursor: not-allowed; }
     overflow: visible;
     height: auto;
     padding: 12px 0 20px;
+  }
+  .storage-pill {
+    position: static;
+    transform: none;
+  }
+  .compose-hub-card {
+    height: auto;
   }
   .vault-workspace {
     grid-template-columns: 1fr;
