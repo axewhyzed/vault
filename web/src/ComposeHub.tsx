@@ -630,47 +630,49 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
         </div>
       </div>
 
-      {/* Segmented Tabs */}
-      <div className="compose-tabs" role="tablist" aria-label="Compose item type">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'text'}
-          className={`compose-tab ${tab === 'text' ? 'is-active' : ''}`}
-          onClick={() => {
-            setTab('text');
-            resetSendFeedback();
-          }}
-        >
-          <TextIcon size={14} />
-          <span>Text</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'url'}
-          className={`compose-tab ${tab === 'url' ? 'is-active' : ''}`}
-          onClick={() => {
-            setTab('url');
-            resetSendFeedback();
-          }}
-        >
-          <LinkIcon size={14} />
-          <span>Link</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'file'}
-          className={`compose-tab ${tab === 'file' ? 'is-active' : ''}`}
-          onClick={() => {
-            setTab('file');
-            resetSendFeedback();
-          }}
-        >
-          <FileIcon size={14} />
-          <span>File</span>
-        </button>
+      {/* Segmented Tabs Bar */}
+      <div className="compose-tabs-bar">
+        <div className="compose-tabs" role="tablist" aria-label="Compose item type">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'text'}
+            className={`compose-tab ${tab === 'text' ? 'is-active' : ''}`}
+            onClick={() => {
+              setTab('text');
+              resetSendFeedback();
+            }}
+          >
+            <TextIcon size={14} />
+            <span>Text</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'url'}
+            className={`compose-tab ${tab === 'url' ? 'is-active' : ''}`}
+            onClick={() => {
+              setTab('url');
+              resetSendFeedback();
+            }}
+          >
+            <LinkIcon size={14} />
+            <span>Link</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'file'}
+            className={`compose-tab ${tab === 'file' ? 'is-active' : ''}`}
+            onClick={() => {
+              setTab('file');
+              resetSendFeedback();
+            }}
+          >
+            <FileIcon size={14} />
+            <span>File</span>
+          </button>
+        </div>
       </div>
 
       {/* Tab Panels */}

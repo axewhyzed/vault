@@ -72,52 +72,54 @@ export default function InboxList({
 }: InboxListProps) {
   return (
     <>
-      <div className="inbox-toolbar-row">
-        <div className="inbox-title-wrap">
-          <h2>Inbox</h2>
-          <span className="inbox-count-badge" aria-label={`${items.length} items`}>
-            {items.length}
-          </span>
-        </div>
+      <div className="items-heading">
+        <div className="inbox-toolbar-row">
+          <div className="inbox-title-wrap">
+            <h2>Inbox</h2>
+            <span className="inbox-count-badge" aria-label={`${items.length} items`}>
+              {items.length}
+            </span>
+          </div>
 
-        <div className="inbox-search-box">
-          <SearchIcon size={14} className="search-icon" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search items… (/ or ⌘K)"
-            aria-label="Search inbox items"
-          />
-          {searchQuery ? (
-            <button
-              type="button"
-              className="search-clear-btn"
-              onClick={() => {
-                setSearchQuery('');
-                searchInputRef.current?.focus();
-              }}
-              aria-label="Clear search"
-            >
-              <CloseIcon size={13} />
-            </button>
-          ) : (
-            <kbd className="search-kbd-hint hide-mobile">/</kbd>
-          )}
-        </div>
+          <div className="inbox-search-box">
+            <SearchIcon size={14} className="search-icon" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search items…"
+              aria-label="Search inbox items"
+            />
+            {searchQuery ? (
+              <button
+                type="button"
+                className="search-clear-btn"
+                onClick={() => {
+                  setSearchQuery('');
+                  searchInputRef.current?.focus();
+                }}
+                aria-label="Clear search"
+              >
+                <CloseIcon size={13} />
+              </button>
+            ) : (
+              <kbd className="search-kbd-hint hide-mobile">/</kbd>
+            )}
+          </div>
 
-        <button
-          className="secondary-button refresh-button"
-          type="button"
-          onClick={onRefresh}
-          disabled={listBusy}
-          title="Refresh items list"
-          aria-label="Refresh items list"
-        >
-          <RefreshIcon size={14} className={listBusy ? 'icon-spin' : ''} />
-          <span className="hide-mobile">{listBusy ? 'Refreshing…' : 'Refresh'}</span>
-        </button>
+          <button
+            className="secondary-button refresh-button"
+            type="button"
+            onClick={onRefresh}
+            disabled={listBusy}
+            title="Refresh items list"
+            aria-label="Refresh items list"
+          >
+            <RefreshIcon size={14} className={listBusy ? 'icon-spin' : ''} />
+            <span className="hide-mobile">{listBusy ? 'Refreshing…' : 'Refresh'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Chips */}

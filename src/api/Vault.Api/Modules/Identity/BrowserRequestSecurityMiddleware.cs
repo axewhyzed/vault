@@ -9,6 +9,7 @@ internal sealed class BrowserRequestSecurityMiddleware(RequestDelegate next, ICo
         context.Response.Headers["X-Frame-Options"] = "DENY";
         context.Response.Headers["Content-Security-Policy"] = "frame-ancestors 'none'; default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self';";
         context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
 
         var path = context.Request.Path;
         var isLogin = string.Equals(path.Value, "/api/v1/auth/login", StringComparison.OrdinalIgnoreCase);
