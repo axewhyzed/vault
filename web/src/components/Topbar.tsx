@@ -97,9 +97,13 @@ export default function Topbar({
             <span className="storage-pill-fill" style={{ width: `${bytePercent}%` }} />
           </div>
           <span className="storage-pill-text font-mono tabular-nums">
-            {quota
-              ? `${formatBytes(quota.activeBytes)} / ${formatBytes(quota.maxActiveBytes)} · ${bytePercent.toFixed(0)}%`
-              : 'Storage'}
+            <span className="storage-bytes-label">
+              {quota ? `${formatBytes(quota.activeBytes)} / ${formatBytes(quota.maxActiveBytes)}` : 'Storage'}
+            </span>
+            <span className="storage-percent-sep"> · </span>
+            <span className="storage-percent-label">
+              {quota ? `${bytePercent.toFixed(0)}%` : ''}
+            </span>
           </span>
         </div>
       )}
@@ -117,7 +121,7 @@ export default function Topbar({
               aria-label="Download Vault Android APK"
             >
               <AndroidIcon size={14} className="apk-btn-icon" />
-              <span className="hide-mobile">Get APK</span>
+              <span className="topbar-btn-text">Get APK</span>
             </a>
 
             <button
@@ -128,7 +132,7 @@ export default function Topbar({
               title="View Connected Devices"
             >
               <DevicesIcon size={15} />
-              <span className="hide-mobile">Devices</span>
+              <span className="topbar-btn-text">Devices</span>
             </button>
 
             <button
@@ -136,9 +140,10 @@ export default function Topbar({
               className="topbar-action-btn"
               onClick={onOpenPairModal}
               aria-label="Pair Android Phone"
+              title="Pair Android Phone"
             >
               <QrCodeIcon size={15} />
-              <span className="hide-mobile">Pair Phone</span>
+              <span className="topbar-btn-text">Pair Phone</span>
             </button>
           </>
         )}
@@ -166,7 +171,7 @@ export default function Topbar({
               <span className="user-avatar-initial" aria-hidden="true">
                 {avatarInitial}
               </span>
-              <span className="user-email-text hide-mobile">{displayName}</span>
+              <span className="user-email-text">{displayName}</span>
               <ChevronDownIcon size={12} className={`chevron-indicator ${userMenuOpen ? 'is-open' : ''}`} />
             </button>
 

@@ -117,7 +117,7 @@ export default function InboxList({
             aria-label="Refresh items list"
           >
             <RefreshIcon size={14} className={listBusy ? 'icon-spin' : ''} />
-            <span className="hide-mobile">{listBusy ? 'Refreshing…' : 'Refresh'}</span>
+            <span className="refresh-btn-text">{listBusy ? 'Refreshing…' : 'Refresh'}</span>
           </button>
         </div>
       </div>

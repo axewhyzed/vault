@@ -835,7 +835,7 @@ export default function App() {
   const textCount = useMemo(() => items.filter((i) => i.type === 'text').length, [items]);
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${view === 'signed-out' ? 'app-shell--signed-out' : ''}`}>
       <Topbar
         view={view}
         session={session}

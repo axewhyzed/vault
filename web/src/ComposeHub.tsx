@@ -578,8 +578,8 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
       {/* Header with Title and Retention Dropdown */}
       <div className="compose-hub-header">
         <div className="compose-hub-heading">
-          <span className="card-kicker"><SendIcon size={12} /> ADD TO VAULT</span>
           <h2 id="compose-hub-title">Compose</h2>
+          <span className="card-kicker"><SendIcon size={11} /> TRANSFER</span>
         </div>
         <div className="compose-retention-pill">
           <label htmlFor="compose-retention-val">Keep:</label>
@@ -677,7 +677,7 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
 
       {/* Tab Panels */}
       {tab === 'text' && (
-        <form onSubmit={submitTextOrUrl} className="compose-tab-panel" noValidate>
+        <form onSubmit={submitTextOrUrl} className="compose-tab-panel compose-tab-panel--text" noValidate>
           <div className="field-group">
             <label htmlFor="compose-text-input">Text content</label>
             <textarea
@@ -762,7 +762,7 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
       )}
 
       {tab === 'url' && (
-        <form onSubmit={submitTextOrUrl} className="compose-tab-panel" noValidate>
+        <form onSubmit={submitTextOrUrl} className="compose-tab-panel compose-tab-panel--url" noValidate>
           <div className="field-group">
             <label htmlFor="compose-url-input">Web address</label>
             <input
@@ -848,7 +848,7 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
       )}
 
       {tab === 'file' && (
-        <div className="compose-tab-panel">
+        <div className="compose-tab-panel compose-tab-panel--file">
           <input
             ref={fileInputRef}
             type="file"
