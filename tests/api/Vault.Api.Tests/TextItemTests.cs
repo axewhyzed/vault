@@ -974,9 +974,22 @@ public sealed class TextItemTests
 
         public async Task<string> GetUploadStateAsync(Guid uploadId)
         {
-            await using var scope = _factory.Services.CreateAsyncScope();
-            var db = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
-            return await db.UploadSessions.Where(x => x.Id == uploadId).Select(x => x.State).SingleAsync();
+            for (var attempt = 0; attempt < 10; attempt++)
+            {
+                try
+                {
+                    await using var scope = _factory.Services.CreateAsyncScope();
+                    var db = scope.ServiceProvider.GetRequiredService<VaultDbContext>();
+                    return await db.UploadSessions.Where(x => x.Id == uploadId).Select(x => x.State).SingleAsync();
+                }
+                catch (Exception ex) when (ex is SqliteException { SqliteErrorCode: 5 or 6 } or InvalidOperationException && attempt < 9)
+                {
+                    await Task.Delay(20);
+                }
+            }
+            await using var finalScope = _factory.Services.CreateAsyncScope();
+            var finalDb = finalScope.ServiceProvider.GetRequiredService<VaultDbContext>();
+            return await finalDb.UploadSessions.Where(x => x.Id == uploadId).Select(x => x.State).SingleAsync();
         }
 
         public async Task WaitForUploadStateAsync(Guid uploadId, string expected)
@@ -990,6 +1003,10 @@ public sealed class TextItemTests
                 catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
                 {
                     // Polling can overlap the TestServer request's SQLite transaction; retry busy/locked only.
+                }
+                catch (InvalidOperationException)
+                {
+                    // Polling can overlap the TestServer request's SQLite transaction where the connection has a pending local transaction.
                 }
                 await Task.Delay(20);
             }
