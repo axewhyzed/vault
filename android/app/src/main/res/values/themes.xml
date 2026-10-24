@@ -8,8 +8,10 @@
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
-    <!-- Splash Screen Starting Theme -->
-    <style name="Theme.Vault.Starting" parent="Theme.Vault">
-        <item name="android:windowBackground">@drawable/splash_background</item>
+    <!-- Splash Screen Starting Theme (AndroidX Core Splashscreen) -->
+    <style name="Theme.Vault.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/vault_obsidian</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.Vault</item>
     </style>
 </resources>

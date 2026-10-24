@@ -139,4 +139,20 @@ class DraftQueueTest {
         assertEquals(DraftContentKind.FILE, draft.contentKind)
         assertEquals(1, draft.version)
     }
+
+    @Test fun retryingDraftCanBeResentDirectly() {
+        val store = store()
+        var workStarts = 0
+        val queue = DraftQueue(store, enqueue = { workStarts++ }, cancelWork = {})
+        val draft = Draft("retrying-draft", "retry-key", "https://vault.example", "owner", text = "retry text", displayName = "Retry", contentType = "text/plain", sizeBytes = 10, state = DraftState.RETRYING, safeError = "Network error")
+        store.saveDraft(draft)
+
+        val sent = queue.send(draft.id, 2)
+        assertEquals(1, workStarts)
+        assertEquals(DraftState.QUEUED, sent.state)
+        assertNull(sent.safeError)
+        assertEquals(2, sent.retentionDays)
+        assertEquals(DraftState.QUEUED, store.draft(draft.id)?.state)
+        store.deleteDraft(draft.id)
+    }
 }

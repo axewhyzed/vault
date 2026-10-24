@@ -627,16 +627,11 @@ internal fun InboxTab(
                 )
             }
         } else {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Inbox", style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = { scope.launch { fetchPage(reset = true) } }, enabled = !pageLoading, modifier = Modifier.heightIn(min = 48.dp)) { Text("Refresh") }
-            }
-
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search files, links, or devices…") },
+                placeholder = { Text("Search...") },
                 leadingIcon = {
                     Icon(Icons.Filled.Search, contentDescription = "Search inbox")
                 },

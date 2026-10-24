@@ -17,6 +17,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -52,7 +53,7 @@ class InboxComposeTest {
 
             compose.waitUntil(5_000) { server.requestCount == 1 }
             compose.onNodeWithText("Your inbox is empty.").assertExists()
-            compose.onNodeWithText("Refresh").assertExists()
+            compose.onNodeWithText("Search...").assertExists()
         } finally { server.shutdown() }
     }
 
@@ -125,10 +126,38 @@ class InboxComposeTest {
         compose.setContent { MaterialTheme { ReviewSendScreen(draft, { sentRetention = it }, {}, {}) } }
 
         compose.onNodeWithText("complete private note content").assertExists()
-        compose.onNodeWithText("Keep for 7 days · then delete").performClick()
-        compose.onNodeWithText("3 days").performClick()
+        compose.onNodeWithText("7").performTextReplacement("3")
         compose.onNodeWithText("Send to Vault").performClick()
         assertEquals(3, sentRetention)
+    }
+
+    @Test fun reviewScreenCanSwitchUnitToHoursAndSendRetentionHours() {
+        var sentDays: Int? = null
+        var sentHours: Int? = null
+        val draft = Draft("compose-hours", "compose-key", "https://vault.example", "owner", text = "note", displayName = "Snippet", contentType = "text/plain", sizeBytes = 4, state = DraftState.PREPARED, contentKind = DraftContentKind.TEXT)
+        compose.setContent {
+            MaterialTheme {
+                ReviewSendScreen(
+                    draft = draft,
+                    onSend = { days, hours -> sentDays = days; sentHours = hours },
+                    onEdit = { _, _ -> },
+                    onDiscard = {}
+                )
+            }
+        }
+
+        // Tap Unit field and select Hours
+        compose.onNodeWithText("Days").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Hours (1–168)").performClick()
+        compose.waitForIdle()
+
+        // 7 days converted to 168 hours; replace with 48
+        compose.onNodeWithText("168").performTextReplacement("48")
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Send to Vault").performClick()
+        assertEquals(48, sentHours)
     }
 
     @Test fun reviewDiscardRequiresExplicitConfirmation() {
@@ -281,7 +310,7 @@ class InboxComposeTest {
 
         compose.onNodeWithText("Outbox Queue (3)").assertExists()
         compose.onNodeWithText("report.pdf").assertExists()
-        compose.onNodeWithText("Waiting for network").assertExists()
+        compose.onNodeWithText("Queued for upload").assertExists()
 
         compose.onNodeWithText("photo.jpg").assertExists()
         compose.onNodeWithText("Uploading · 50%").assertExists()
@@ -319,7 +348,7 @@ class InboxComposeTest {
             compose.onNodeWithText("GitHub Repo").assertExists()
 
             // Filter by name
-            compose.onNodeWithText("Search files, links, or devices…").performTextInput("financial")
+            compose.onNodeWithText("Search...").performTextInput("financial")
             compose.waitForIdle()
             compose.onNodeWithText("1 result").assertExists()
             compose.onNodeWithText("financial-report.pdf").assertExists()
@@ -329,7 +358,7 @@ class InboxComposeTest {
             // Filter by device name
             compose.onNodeWithContentDescription("Clear search").performClick()
             compose.waitForIdle()
-            compose.onNodeWithText("Search files, links, or devices…").performTextInput("Pixel 8")
+            compose.onNodeWithText("Search...").performTextInput("Pixel 8")
             compose.waitForIdle()
             compose.onNodeWithText("1 result").assertExists()
             compose.onNodeWithText("Grocery list").assertExists()
@@ -338,7 +367,7 @@ class InboxComposeTest {
             // Filter with no match
             compose.onNodeWithContentDescription("Clear search").performClick()
             compose.waitForIdle()
-            compose.onNodeWithText("Search files, links, or devices…").performTextInput("nonexistent")
+            compose.onNodeWithText("Search...").performTextInput("nonexistent")
             compose.waitForIdle()
             compose.onNodeWithText("0 results").assertExists()
             compose.onNodeWithText("No items match \"nonexistent\".").assertExists()

@@ -196,4 +196,17 @@ class EncryptedStoreTest {
         store.clearCredentials()
         assertTrue(EncryptedStore.authRevision.value > afterSave)
     }
+
+    @Test fun draftsRevisionIncrementsOnSaveAndDeleteDraft() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val testKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+        val store = EncryptedStore(context, VaultCrypto(testKey))
+        val initialEpoch = EncryptedStore.draftsRevision.value
+        val draft = Draft("rev-draft", "rev-key", "https://vault.example", "user", text = "rev test", displayName = "Rev", contentType = "text/plain", sizeBytes = 8)
+        store.saveDraft(draft)
+        assertTrue(EncryptedStore.draftsRevision.value > initialEpoch)
+        val afterSave = EncryptedStore.draftsRevision.value
+        store.deleteDraft(draft.id)
+        assertTrue(EncryptedStore.draftsRevision.value > afterSave)
+    }
 }

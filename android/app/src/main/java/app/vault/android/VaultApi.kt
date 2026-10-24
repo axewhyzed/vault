@@ -553,7 +553,25 @@ class VaultApi(
             .header("Idempotency-Key", draft.idempotencyKey).put(object : RequestBody() {
                 override fun contentType() = "application/octet-stream".toMediaType()
                 override fun contentLength() = draft.sizeBytes
-                override fun writeTo(sink: BufferedSink) { store.spool(draft.spoolName!!).use { input -> val buffer = ByteArray(64 * 1024); var sent = 0L; var reported = 0L; while (true) { val n = input.read(buffer); if (n < 0) break; sink.write(buffer, 0, n); sent += n; if (sent - reported >= 1_048_576 || sent == draft.sizeBytes) { reported = sent; onProgress(sent) } } } }
+                override fun writeTo(sink: BufferedSink) {
+                    store.spool(draft.spoolName!!).use { input ->
+                        val buffer = ByteArray(64 * 1024)
+                        var sent = 0L
+                        var reported = 0L
+                        onProgress(0L)
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            sink.write(buffer, 0, n)
+                            sink.flush()
+                            sent += n
+                            if (sent - reported >= 262_144 || sent == draft.sizeBytes) {
+                                reported = sent
+                                onProgress(sent)
+                            }
+                        }
+                    }
+                }
             }).build()
         client.newCall(request).execute().use { if (!it.isSuccessful) throw failure(it.code, it.body?.string().orEmpty()) }
         execute(draft.serverOrigin + "/api/v1/uploads/$id/complete", "POST", "{}", common)

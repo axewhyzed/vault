@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Android 12+ (API 31+) Native Splash Screen Theme -->
-    <style name="Theme.Vault.Starting" parent="Theme.Vault">
-        <item name="android:windowSplashScreenBackground">@color/vault_obsidian</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_vault_logo</item>
+    <style name="Theme.Vault.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/vault_obsidian</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
         <item name="android:windowSplashScreenAnimationDuration">350</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">@color/vault_obsidian</item>
+        <item name="postSplashScreenTheme">@style/Theme.Vault</item>
     </style>
 </resources>

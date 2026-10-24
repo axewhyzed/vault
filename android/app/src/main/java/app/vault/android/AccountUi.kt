@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -62,6 +63,7 @@ internal fun WelcomeScreen(
     defaultDeviceName: String,
     busy: Boolean,
     errorMessage: String? = null,
+    onClearError: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showLoginSheet by remember { mutableStateOf(false) }
@@ -140,7 +142,7 @@ internal fun WelcomeScreen(
 
         Spacer(modifier = Modifier.height(36.dp))
 
-        if (errorMessage != null) {
+        if (errorMessage != null && !showLoginSheet) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
@@ -196,6 +198,8 @@ internal fun WelcomeScreen(
                 defaultOrigin = defaultOrigin,
                 defaultDeviceName = defaultDeviceName,
                 busy = busy,
+                errorMessage = errorMessage,
+                onClearError = onClearError,
                 onDismiss = { showLoginSheet = false },
                 onLogin = { origin, identifier, password, deviceName ->
                     onLogin(origin, identifier, password, deviceName)
@@ -210,6 +214,8 @@ private fun SignInBottomSheetContent(
     defaultOrigin: String,
     defaultDeviceName: String,
     busy: Boolean,
+    errorMessage: String? = null,
+    onClearError: () -> Unit = {},
     onDismiss: () -> Unit,
     onLogin: (origin: String, identifier: String, password: String, deviceName: String) -> Unit,
 ) {
@@ -245,7 +251,10 @@ private fun SignInBottomSheetContent(
 
         OutlinedTextField(
             value = identifier,
-            onValueChange = { identifier = it },
+            onValueChange = {
+                identifier = it
+                if (!errorMessage.isNullOrBlank()) onClearError()
+            },
             label = { Text("Username or Email") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -254,7 +263,10 @@ private fun SignInBottomSheetContent(
 
         OutlinedTextField(
             value = password,
-            onValueChange = { password = it },
+            onValueChange = {
+                password = it
+                if (!errorMessage.isNullOrBlank()) onClearError()
+            },
             label = { Text("Password") },
             singleLine = true,
             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -269,6 +281,34 @@ private fun SignInBottomSheetContent(
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy,
         )
+
+        if (!errorMessage.isNullOrBlank()) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = "Error",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(4.dp))
 

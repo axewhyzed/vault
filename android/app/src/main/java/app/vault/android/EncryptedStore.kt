@@ -25,7 +25,7 @@ data class CachedInbox(
     val quota: InboxQuota?
 )
 
-class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCrypto()) {
+class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCrypto(context = context)) {
     val appCacheDir: File = context.cacheDir
     private val root = File(context.filesDir, "vault-private").apply { mkdirs() }
     private val drafts = File(root, "drafts").apply { mkdirs() }
@@ -90,7 +90,10 @@ class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCr
         val expiresAt = Instant.parse(expiry)
         !Instant.now().isBefore(expiresAt)
     }.getOrDefault(false)
-    fun saveDraft(draft: Draft) = writeEncrypted(draftFile(draft.id), draft.json().toString().toByteArray())
+    fun saveDraft(draft: Draft) {
+        writeEncrypted(draftFile(draft.id), draft.json().toString().toByteArray())
+        notifyDraftsChanged()
+    }
     fun draft(id: String): Draft? = try { Draft.from(JSONObject(crypto.decrypt(draftFile(id).readBytes()).toString(Charsets.UTF_8))) } catch (_: Exception) { null }
     @Synchronized fun allDrafts(): List<Draft> {
         val all = drafts.listFiles()?.mapNotNull { file -> draft(file.nameWithoutExtension) }
@@ -103,7 +106,12 @@ class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCr
         if (origin.isNullOrBlank() || userId.isNullOrBlank()) return emptyList()
         return allDrafts().filter { it.ownerUserId == userId && it.serverOrigin.equals(origin, ignoreCase = true) }
     }
-    fun deleteDraft(id: String) { val draft = draft(id); draftFile(id).delete(); draft?.spoolName?.let { spoolFile(it).delete() } }
+    fun deleteDraft(id: String) {
+        val draft = draft(id)
+        draftFile(id).delete()
+        draft?.spoolName?.let { spoolFile(it).delete() }
+        notifyDraftsChanged()
+    }
     fun completeDraft(draft: Draft) {
         draft.spoolName?.let { spoolFile(it).delete() }
         saveDraft(draft.copy(text = null, spoolName = null, bytesSent = draft.sizeBytes, state = DraftState.AVAILABLE, safeError = null))
@@ -227,8 +235,15 @@ class EncryptedStore(context: Context, private val crypto: VaultCrypto = VaultCr
         private val _authRevision = MutableStateFlow(0L)
         val authRevision: StateFlow<Long> = _authRevision.asStateFlow()
 
+        private val _draftsRevision = MutableStateFlow(0L)
+        val draftsRevision: StateFlow<Long> = _draftsRevision.asStateFlow()
+
         fun notifyAuthChanged() {
             _authRevision.update { it + 1 }
+        }
+
+        fun notifyDraftsChanged() {
+            _draftsRevision.update { it + 1 }
         }
     }
 }
