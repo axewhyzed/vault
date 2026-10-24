@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { CheckIcon, CloseIcon, CopyIcon, ExternalLinkIcon, QrCodeIcon, RefreshIcon } from './Icons';
+import { AndroidIcon, CheckIcon, CloseIcon, CopyIcon, ExternalLinkIcon, QrCodeIcon, RefreshIcon } from './Icons';
 import { useFocusTrap } from './useFocusTrap';
-import { copyToClipboard } from './utils';
+import { copyToClipboard, VAULT_ANDROID_RELEASE_URL } from './utils';
 import type { DeviceListResponse } from './types';
 
 type Csrf = { token: string; headerName: 'X-CSRF-TOKEN' };
@@ -312,6 +312,19 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
               >
                 <span>Launch deep link on this device</span>
                 <ExternalLinkIcon size={13} />
+              </a>
+            </div>
+
+            <div className="pairing-apk-download-box">
+              <span className="pairing-apk-hint">Don't have the Vault Android app installed?</span>
+              <a
+                href={VAULT_ANDROID_RELEASE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="pairing-apk-link"
+              >
+                <AndroidIcon size={14} />
+                <span>Download APK (v1.0.0)</span>
               </a>
             </div>
 
