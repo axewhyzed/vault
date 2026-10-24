@@ -39,20 +39,92 @@ export default function ItemDetailPanel({
   return (
     <>
       <div className="detail-nav-header">
-        <button
-          type="button"
-          className="nav-back-button"
-          onClick={onBack}
-          aria-label="Back to items list"
-        >
-          <ArrowLeftIcon size={15} />
-          <span>Back to items</span>
-        </button>
-        <span className="breadcrumb-separator" aria-hidden="true">
-          /
-        </span>
-        <span className="breadcrumb-current">Item detail</span>
-        <span className="esc-key-hint hide-mobile">Esc</span>
+        <div className="detail-nav-left">
+          <button
+            type="button"
+            className="nav-back-button"
+            onClick={onBack}
+            aria-label="Back to items list"
+          >
+            <ArrowLeftIcon size={14} />
+            <span>Back to items</span>
+          </button>
+          <span className="breadcrumb-separator" aria-hidden="true">
+            /
+          </span>
+          <span className="breadcrumb-current">
+            {detail?.displayName?.trim() ||
+              (detail
+                ? detail.type === 'url'
+                  ? 'Saved link'
+                  : detail.type === 'file'
+                    ? 'File attachment'
+                    : 'Text note'
+                : 'Item detail')}
+          </span>
+        </div>
+        <div className="detail-nav-right">
+          <span className="esc-key-hint hide-mobile" title="Press Escape to return to items">
+            Esc
+          </span>
+        </div>
+      </div>
+
+      <div className="detail-toolbar-bar">
+        <div className="detail-toolbar-left font-mono tabular-nums">
+          {detail ? (
+            <div className="detail-toolbar-meta">
+              <span className={`detail-type-badge detail-type-badge--${detail.type}`}>
+                <ItemTypeIcon type={detail.type} size={12} />
+                <span>{detail.type.toUpperCase()}</span>
+              </span>
+              <span className="detail-meta-item">{formatBytes(detail.sizeBytes)}</span>
+              <span className="meta-dot">·</span>
+              <span className="detail-meta-item">{formatDate(detail.createdAt)}</span>
+            </div>
+          ) : (
+            <span className="detail-toolbar-placeholder">{detailBusy ? 'Loading details…' : ''}</span>
+          )}
+        </div>
+        <div className="detail-toolbar-right">
+          {detail && !deleteConfirm && (
+            <div className="detail-toolbar-actions">
+              {detail.type === 'file' ? (
+                <button
+                  type="button"
+                  className="detail-toolbar-btn"
+                  onClick={() => onDownload(detail.downloadUrl!, detail.displayName)}
+                  title="Download attachment"
+                  aria-label="Download attachment"
+                >
+                  <DownloadIcon size={13} />
+                  <span>Download</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="detail-toolbar-btn"
+                  onClick={() => onCopyText(detail.text)}
+                  title="Copy text"
+                  aria-label="Copy text"
+                >
+                  <CopyIcon size={13} />
+                  <span>Copy</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className="detail-toolbar-btn detail-toolbar-btn--danger"
+                onClick={() => onSetDeleteConfirm(true)}
+                title="Delete item"
+                aria-label="Delete item"
+              >
+                <TrashIcon size={13} />
+                <span>Delete</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="detail-view">
