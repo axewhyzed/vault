@@ -11,37 +11,37 @@ type TourStep = {
 const TOUR_STEPS: TourStep[] = [
   {
     targetSelector: '[data-tour="compose-hub"]',
-    title: 'Unified Compose Hub',
+    title: 'Send & Transfer',
     content:
-      'Quickly drop text notes, save links, or upload files up to 2 GB. Transfers are encrypted and sent instantly to your connected devices without page hopping.',
+      'Drop text notes, save links, or upload files up to 2 GB to send them to your other devices.',
     placement: 'right',
   },
   {
     targetSelector: '[data-tour="retention-pill"]',
-    title: 'Self-Destructing Retention',
+    title: 'Automatic Expiration',
     content:
-      'Set how long each item stays active—from 1 hour to 7 days. Vault automatically purges expired items so your storage and privacy stay clean.',
+      'Choose how long an item stays active (from 1 hour to 7 days). Expired items are automatically removed to keep your storage clean.',
     placement: 'bottom',
   },
   {
     targetSelector: '[data-tour="inbox-panel"]',
-    title: 'High-Density Inbox',
+    title: 'Your Transfers',
     content:
-      'Browse incoming transfers in a compact 52px timeline. Press / to search instantly, or filter between Files, Links, and Text notes.',
+      'Browse everything sent or received across your devices. Press / to search, or filter by Files, Links, and Notes.',
     placement: 'bottom',
   },
   {
     targetSelector: '[data-tour="item-actions"]',
-    title: 'Instant One-Tap Actions',
+    title: 'Quick Actions',
     content:
-      'Copy snippets or links to your clipboard with one click, download attachments immediately, or open details to inspect full SHA-256 cryptographic hashes.',
+      'Copy text or links to your clipboard with one click, or download files directly to your device.',
     placement: 'left',
   },
   {
     targetSelector: '[data-tour="pair-phone"]',
-    title: 'Encrypted Phone Pairing',
+    title: 'Pair Your Phone',
     content:
-      'Pair your Android phone by scanning a secure 60-second QR code. Everything syncs directly over your self-hosted Vault relay without cloud tracking.',
+      'Scan the QR code with the Vault Android app to link your phone and share files seamlessly.',
     placement: 'bottom',
   },
 ];
