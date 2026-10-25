@@ -1295,21 +1295,6 @@ button:disabled { cursor: not-allowed; }
   accent-color: var(--green);
 }
 
-.upload-hash-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: var(--code-bg);
-  border: 1px solid var(--code-border);
-  font-size: 10px;
-}
-
-.upload-hash-pill span { color: var(--muted); font-family: var(--mono); }
-.upload-hash-pill code { font-family: var(--mono); color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
-
 .send-message {
   min-height: 24px;
   margin: 4px 0 8px;
