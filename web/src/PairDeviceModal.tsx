@@ -32,9 +32,10 @@ type Props = {
   onClose: () => void;
   onUnauthorized: () => void;
   onDevicePaired?: () => void;
+  isDemo?: boolean;
 };
 
-export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDevicePaired }: Props) {
+export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDevicePaired, isDemo }: Props) {
   const modalRef = useFocusTrap(isOpen, onClose);
   const [pairing, setPairing] = useState<PairingSession | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -96,6 +97,12 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
       initialDeviceIdsRef.current.clear();
       return;
     }
+    if (isDemo) {
+      if (!pairing) {
+        void createPairing();
+      }
+      return;
+    }
     const fetchInitial = async () => {
       try {
         const res = await fetch(`${API}/devices`, {
@@ -114,6 +121,7 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
       }
     };
     void fetchInitial();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   // Poll for Android pairing completion
@@ -154,6 +162,22 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
 
   async function createPairing() {
     if (busy) return;
+    if (isDemo) {
+      setBusy(true);
+      setPairing(null);
+      setMessage('');
+      setError(false);
+      setSecretCopied(false);
+      await new Promise((r) => setTimeout(r, 200));
+      setPairing({
+        pairingSessionId: 'demo-pairing-session-001',
+        pairingSecret: 'VAULT-DEMO-9823-7712',
+        serverOrigin: window.location.origin,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      });
+      setBusy(false);
+      return;
+    }
     const controller = new AbortController();
     requestRef.current = controller;
     setBusy(true);

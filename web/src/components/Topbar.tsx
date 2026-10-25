@@ -37,6 +37,8 @@ type TopbarProps = {
   onOpenPairModal: () => void;
   onOpenSecurityModal: () => void;
   onLogout: () => void;
+  isDemo?: boolean;
+  onExitDemo?: () => void;
 };
 
 export default function Topbar({
@@ -54,6 +56,8 @@ export default function Topbar({
   onOpenPairModal,
   onOpenSecurityModal,
   onLogout,
+  isDemo,
+  onExitDemo,
 }: TopbarProps) {
   const bytePercent = quota ? Math.min(100, (quota.activeBytes / quota.maxActiveBytes) * 100) : 0;
   const displayName = session?.username || session?.email || '';
@@ -74,6 +78,11 @@ export default function Topbar({
             <span className="status-dot-pulse" aria-hidden="true" />
             <span>{serviceOnline === false ? 'Offline' : 'Ready'}</span>
           </div>
+        )}
+        {isDemo && (
+          <span className="demo-pill-badge font-mono" title="Interactive demo preview mode">
+            DEMO
+          </span>
         )}
       </div>
 
@@ -139,6 +148,7 @@ export default function Topbar({
             <button
               type="button"
               className="topbar-action-btn"
+              data-tour="pair-phone"
               onClick={onOpenPairModal}
               aria-label="Pair Android Phone"
               title="Pair Android Phone"
@@ -243,10 +253,10 @@ export default function Topbar({
                   type="button"
                   className="dropdown-item"
                   role="menuitem"
-                  onClick={onLogout}
+                  onClick={isDemo ? onExitDemo : onLogout}
                   disabled={busy}
                 >
-                  <span>{busy ? 'Signing out…' : 'Sign out'}</span>
+                  <span>{busy ? 'Signing out…' : isDemo ? 'Exit demo mode' : 'Sign out'}</span>
                 </button>
 
                 <div className="dropdown-divider" role="separator" />

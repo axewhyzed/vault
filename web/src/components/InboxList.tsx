@@ -72,7 +72,7 @@ export default function InboxList({
 }: InboxListProps) {
   return (
     <>
-      <div className="items-heading">
+      <div className="items-heading" data-tour="inbox-panel">
         <div className="inbox-toolbar-row">
           <div className="inbox-title-wrap">
             <h2>Inbox</h2>
@@ -189,7 +189,7 @@ export default function InboxList({
 
       {/* Items List (Dense 52px rows) */}
       <ul className="item-list" aria-label="Inbox items, newest first">
-        {filteredItems.map((item) => {
+        {filteredItems.map((item, index) => {
           const isConfirmingDelete = rowDeleteConfirmId === item.id;
           const isCopied = copiedItemId === item.id;
           const isSelected = selectedId === item.id;
@@ -233,7 +233,11 @@ export default function InboxList({
                 </button>
 
                 {/* Quick Micro-Actions (non-nested sibling elements) */}
-                <div className="item-micro-actions" onClick={(e) => e.stopPropagation()}>
+                <div
+                  className="item-micro-actions"
+                  data-tour={index === 0 ? 'item-actions' : undefined}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {item.type === 'file' ? (
                     <button
                       type="button"
