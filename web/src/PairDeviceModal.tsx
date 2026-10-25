@@ -160,6 +160,34 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
     return () => window.clearInterval(pollInterval);
   }, [isOpen, pairing, pairedSuccess, onClose, onUnauthorized, onDevicePaired, isDemo]);
 
+  // Demo mode: simulate Android phone QR scan and handshake completion
+  useEffect(() => {
+    if (!isOpen || !pairing || pairedSuccess || !isDemo) return undefined;
+    const timer = window.setTimeout(() => {
+      setPairedSuccess(true);
+      setPairing(null);
+      setMessage('Device successfully linked to your Vault! (Pixel 9 Pro)');
+      setError(false);
+      window.setTimeout(() => {
+        onDevicePaired?.();
+        onClose();
+      }, 1400);
+    }, 4500);
+
+    return () => window.clearTimeout(timer);
+  }, [isOpen, pairing, pairedSuccess, isDemo, onDevicePaired, onClose]);
+
+  const handleSimulateScan = () => {
+    setPairedSuccess(true);
+    setPairing(null);
+    setMessage('Device successfully linked to your Vault! (Pixel 9 Pro)');
+    setError(false);
+    window.setTimeout(() => {
+      onDevicePaired?.();
+      onClose();
+    }, 1400);
+  };
+
   async function createPairing() {
     if (busy) return;
     if (isDemo) {
@@ -326,6 +354,20 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
                 </button>
               </div>
             </div>
+
+            {isDemo && (
+              <div style={{ marginTop: '0.75rem', textAlign: 'center' }}>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  style={{ width: '100%', fontSize: '0.8125rem', padding: '0.5rem 0.75rem' }}
+                  onClick={handleSimulateScan}
+                >
+                  <AndroidIcon size={14} />
+                  <span>Simulate Phone Scan (Instant Demo)</span>
+                </button>
+              </div>
+            )}
 
             <div className="pairing-deep-link-row">
               <a
