@@ -13,7 +13,7 @@ const TOUR_STEPS: TourStep[] = [
     targetSelector: '[data-tour="compose-hub"]',
     title: 'Send & Transfer',
     content:
-      'Drop text notes, save links, or upload files up to 2 GB to send them to your other devices.',
+      'Drop text notes, save links, or upload files to send them to your other devices.',
     placement: 'right',
   },
   {
