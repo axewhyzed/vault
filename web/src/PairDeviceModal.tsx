@@ -32,10 +32,9 @@ type Props = {
   onClose: () => void;
   onUnauthorized: () => void;
   onDevicePaired?: () => void;
-  isDemo?: boolean;
 };
 
-export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDevicePaired, isDemo }: Props) {
+export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDevicePaired }: Props) {
   const modalRef = useFocusTrap(isOpen, onClose);
   const [pairing, setPairing] = useState<PairingSession | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -97,12 +96,6 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
       initialDeviceIdsRef.current.clear();
       return;
     }
-    if (isDemo) {
-      if (!pairing) {
-        void createPairing();
-      }
-      return;
-    }
     const fetchInitial = async () => {
       try {
         const res = await fetch(`${API}/devices`, {
@@ -121,12 +114,11 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
       }
     };
     void fetchInitial();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   // Poll for Android pairing completion
   useEffect(() => {
-    if (!isOpen || !pairing || pairedSuccess || isDemo) return undefined;
+    if (!isOpen || !pairing || pairedSuccess) return undefined;
     const pollInterval = window.setInterval(async () => {
       try {
         const res = await fetch(`${API}/devices`, {
@@ -158,54 +150,10 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
     }, 2500);
 
     return () => window.clearInterval(pollInterval);
-  }, [isOpen, pairing, pairedSuccess, onClose, onUnauthorized, onDevicePaired, isDemo]);
-
-  // Demo mode: simulate Android phone QR scan and handshake completion
-  useEffect(() => {
-    if (!isOpen || !pairing || pairedSuccess || !isDemo) return undefined;
-    const timer = window.setTimeout(() => {
-      setPairedSuccess(true);
-      setPairing(null);
-      setMessage('Device successfully linked to your Vault! (Pixel 9 Pro)');
-      setError(false);
-      window.setTimeout(() => {
-        onDevicePaired?.();
-        onClose();
-      }, 1400);
-    }, 4500);
-
-    return () => window.clearTimeout(timer);
-  }, [isOpen, pairing, pairedSuccess, isDemo, onDevicePaired, onClose]);
-
-  const handleSimulateScan = () => {
-    setPairedSuccess(true);
-    setPairing(null);
-    setMessage('Device successfully linked to your Vault! (Pixel 9 Pro)');
-    setError(false);
-    window.setTimeout(() => {
-      onDevicePaired?.();
-      onClose();
-    }, 1400);
-  };
+  }, [isOpen, pairing, pairedSuccess, onClose, onUnauthorized, onDevicePaired]);
 
   async function createPairing() {
     if (busy) return;
-    if (isDemo) {
-      setBusy(true);
-      setPairing(null);
-      setMessage('');
-      setError(false);
-      setSecretCopied(false);
-      await new Promise((r) => setTimeout(r, 200));
-      setPairing({
-        pairingSessionId: 'demo-pairing-session-001',
-        pairingSecret: 'VAULT-DEMO-9823-7712',
-        serverOrigin: window.location.origin,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-      });
-      setBusy(false);
-      return;
-    }
     const controller = new AbortController();
     requestRef.current = controller;
     setBusy(true);
@@ -354,20 +302,6 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
                 </button>
               </div>
             </div>
-
-            {isDemo && (
-              <div style={{ marginTop: '0.75rem', textAlign: 'center' }}>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  style={{ width: '100%', fontSize: '0.8125rem', padding: '0.5rem 0.75rem' }}
-                  onClick={handleSimulateScan}
-                >
-                  <AndroidIcon size={14} />
-                  <span>Simulate Phone Scan (Instant Demo)</span>
-                </button>
-              </div>
-            )}
 
             <div className="pairing-deep-link-row">
               <a
