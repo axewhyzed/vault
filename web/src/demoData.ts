@@ -65,13 +65,36 @@ export const INITIAL_DEMO_ITEMS: ItemSummary[] = [
   },
 ];
 
+export const DEMO_SVG_PREVIEW = `data:image/svg+xml;utf8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340" viewBox="0 0 600 340">
+  <rect width="600" height="340" fill="#0f1117" rx="12"/>
+  <rect x="30" y="30" width="540" height="280" fill="#181a24" stroke="#2d3142" stroke-width="2" rx="8"/>
+  <circle cx="70" cy="70" r="14" fill="#6366f1"/>
+  <text x="100" y="75" fill="#f3f4f6" font-family="system-ui, sans-serif" font-size="16" font-weight="600">Vault Secure Sync Architecture</text>
+  <rect x="60" y="110" width="130" height="70" fill="#232736" stroke="#4f46e5" stroke-width="1.5" rx="6"/>
+  <text x="125" y="142" fill="#e0e7ff" font-family="system-ui, sans-serif" font-size="13" text-anchor="middle" font-weight="500">Android Client</text>
+  <text x="125" y="162" fill="#9ca3af" font-family="system-ui, sans-serif" font-size="11" text-anchor="middle">Kotlin + Compose</text>
+  <path d="M 190 145 L 250 145" stroke="#6366f1" stroke-width="2" stroke-dasharray="4,4"/>
+  <rect x="250" y="110" width="130" height="70" fill="#232736" stroke="#10b981" stroke-width="1.5" rx="6"/>
+  <text x="315" y="142" fill="#d1fae5" font-family="system-ui, sans-serif" font-size="13" text-anchor="middle" font-weight="500">ASP.NET Core</text>
+  <text x="315" y="162" fill="#9ca3af" font-family="system-ui, sans-serif" font-size="11" text-anchor="middle">Minimal API (.NET 10)</text>
+  <path d="M 380 145 L 440 145" stroke="#10b981" stroke-width="2" stroke-dasharray="4,4"/>
+  <rect x="440" y="110" width="120" height="70" fill="#232736" stroke="#38bdf8" stroke-width="1.5" rx="6"/>
+  <text x="500" y="142" fill="#e0f2fe" font-family="system-ui, sans-serif" font-size="13" text-anchor="middle" font-weight="500">Web App</text>
+  <text x="500" y="162" fill="#9ca3af" font-family="system-ui, sans-serif" font-size="11" text-anchor="middle">React 19 + TS</text>
+  <rect x="180" y="215" width="270" height="60" fill="#1f2333" stroke="#374151" stroke-width="1" rx="6"/>
+  <text x="315" y="242" fill="#f9fafb" font-family="system-ui, sans-serif" font-size="12" text-anchor="middle" font-weight="500">Zero-Knowledge Storage &amp; SQLite</text>
+  <text x="315" y="260" fill="#9ca3af" font-family="system-ui, sans-serif" font-size="11" text-anchor="middle">Chunked SHA-256 Staged Ingest</text>
+</svg>
+`)}`;
+
 export const DEMO_DETAILS: Record<string, ItemDetail> = {
   'demo-file-1': {
     ...INITIAL_DEMO_ITEMS[0],
     text: null,
-    contentType: 'image/png',
+    contentType: 'image/svg+xml',
     sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-    downloadUrl: '#demo-download',
+    downloadUrl: DEMO_SVG_PREVIEW,
   },
   'demo-url-2': {
     ...INITIAL_DEMO_ITEMS[1],

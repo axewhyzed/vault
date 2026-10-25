@@ -26,7 +26,7 @@ import { copyToClipboard, readJson, retryDelay } from './utils';
 const API = '/api/v1';
 
 function safePathId() {
-  const match = window.location.pathname.match(/^\/items\/([0-9a-f-]{36})\/?$/i);
+  const match = window.location.pathname.match(/^\/items\/([0-9a-f-]{36}|demo-[a-z0-9-]+)\/?$/i);
   return match?.[1] ?? null;
 }
 
@@ -138,6 +138,7 @@ export default function App() {
   }, []);
 
   const signOutOnUnauthorized = useCallback(() => {
+    if (isDemo) return;
     invalidateRequests();
     detailRequestRef.current += 1;
     detailCache.current.clear();
@@ -156,7 +157,7 @@ export default function App() {
     setMessage('Your session has expired. Sign in again to continue.');
     if (window.location.pathname !== '/') window.history.replaceState({}, '', '/');
     void fetchCsrf().catch(() => undefined);
-  }, [fetchCsrf]);
+  }, [fetchCsrf, isDemo]);
 
   const restoreSession = useCallback(async () => {
     if (isDemo) {
@@ -220,12 +221,17 @@ export default function App() {
     setIsDemo(false);
     setTourOpen(false);
     setSession(null);
+    setQuota(null);
     setView('signed-out');
     setItems([]);
     setSelectedId(null);
     setDetail(null);
-    if (window.location.hash === '#demo') {
-      window.history.replaceState(null, '', window.location.pathname);
+    setInboxNotice('');
+    setPairModalOpen(false);
+    setSecurityModalOpen(false);
+    setUserMenuOpen(false);
+    if (window.location.hash === '#demo' || window.location.search.includes('demo=')) {
+      window.history.replaceState(null, '', '/');
     }
   }, []);
 
@@ -274,6 +280,10 @@ export default function App() {
     mountedRef.current = true;
     void restoreSession();
     const checkHealth = async () => {
+      if (isDemo) {
+        if (mountedRef.current) setServiceOnline(true);
+        return;
+      }
       try {
         const response = await fetch('/health/ready', { cache: 'no-store' });
         if (mountedRef.current) setServiceOnline(response.ok);
@@ -309,7 +319,7 @@ export default function App() {
       window.removeEventListener('dragover', handleGlobalDragOver);
       window.removeEventListener('drop', handleGlobalDrop);
     };
-  }, [restoreSession]);
+  }, [restoreSession, isDemo]);
 
   useEffect(() => {
     if (view !== 'signed-in' || !session) return;
@@ -323,7 +333,7 @@ export default function App() {
 
   // Adaptive periodic inbox polling: sync every 8 seconds when active, paused in background
   useEffect(() => {
-    if (view !== 'signed-in' || !session) return undefined;
+    if (isDemo || view !== 'signed-in' || !session) return undefined;
 
     let timer: number | null = null;
 
@@ -364,7 +374,7 @@ export default function App() {
       if (timer) window.clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [view, session, signOutOnUnauthorized]);
+  }, [view, session, signOutOnUnauthorized, isDemo]);
 
   useEffect(() => {
     if (view !== 'signed-in' || !session) return;
@@ -372,27 +382,27 @@ export default function App() {
       detailRequestRef.current += 1;
       setDetail(null);
       setDetailError('');
-      if (window.location.pathname !== '/') window.history.replaceState({}, '', '/');
+      if (window.location.pathname !== '/') window.history.replaceState({}, '', isDemo ? '/#demo' : '/');
       return;
     }
     void loadDetail(selectedId, generationRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, session?.userId, selectedId]);
+  }, [view, session?.userId, selectedId, isDemo]);
 
   const backToList = useCallback(() => {
-    window.history.pushState({}, '', '/');
+    window.history.pushState({}, '', isDemo ? '/#demo' : '/');
     setSelectedId(null);
     setDeleteConfirm(false);
     setDetailError('');
-  }, []);
+  }, [isDemo]);
 
   const openItem = useCallback((id: string) => {
-    window.history.pushState({}, '', `/items/${id}`);
+    window.history.pushState({}, '', isDemo ? `/items/${id}#demo` : `/items/${id}`);
     setSelectedId(id);
     setDeleteConfirm(false);
     setCopyMessage('');
     setInboxNotice('');
-  }, []);
+  }, [isDemo]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -675,6 +685,10 @@ export default function App() {
 
   async function handleLogout() {
     if (busy) return;
+    if (isDemo) {
+      exitDemo();
+      return;
+    }
     setBusy(true);
     setMessage('');
     setUserMenuOpen(false);
@@ -720,6 +734,13 @@ export default function App() {
 
   async function handleRevokeEverywhere() {
     if (securityModalBusy) return;
+    if (isDemo) {
+      setSecurityModalOpen(false);
+      exitDemo();
+      setMessageKind('notice');
+      setMessage('Demo mode reset. All simulated sessions revoked.');
+      return;
+    }
     setSecurityModalBusy(true);
     setSecurityModalError('');
     try {
@@ -875,10 +896,22 @@ export default function App() {
       return;
     }
     if (isDemo) {
+      const deletedItem = items.find((i) => i.id === id);
       setItems((prev) => prev.filter((i) => i.id !== id));
+      if (deletedItem) {
+        setQuota((prev) =>
+          prev
+            ? {
+                ...prev,
+                activeItems: Math.max(0, prev.activeItems - 1),
+                activeBytes: Math.max(0, prev.activeBytes - deletedItem.sizeBytes),
+              }
+            : prev
+        );
+      }
       if (selectedId === id) {
         setSelectedId(null);
-        window.history.replaceState({}, '', '/');
+        window.history.replaceState({}, '', isDemo ? '/#demo' : '/');
       }
       setRowDeleteConfirmId(null);
       setInboxNotice('Item deleted (Demo).');
@@ -916,10 +949,20 @@ export default function App() {
   async function deleteDetailItem() {
     if (!detail || deleteBusy) return;
     if (isDemo) {
+      const deletedItem = detail;
       setItems((previous) => previous.filter((item) => item.id !== detail.id));
+      setQuota((prev) =>
+        prev && deletedItem
+          ? {
+              ...prev,
+              activeItems: Math.max(0, prev.activeItems - 1),
+              activeBytes: Math.max(0, prev.activeBytes - deletedItem.sizeBytes),
+            }
+          : prev
+      );
       setDeleteConfirm(false);
       setDetail(null);
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', isDemo ? '/#demo' : '/');
       setSelectedId(null);
       setCopyMessage('');
       setInboxNotice('Item deleted (Demo).');
@@ -1130,7 +1173,16 @@ export default function App() {
                     listError={listError}
                     inboxNotice={inboxNotice}
                     nextCursor={nextCursor}
-                    onRefresh={() => void loadPage(null, false)}
+                    onRefresh={() => {
+                      if (isDemo) {
+                        setItems(INITIAL_DEMO_ITEMS);
+                        setQuota(DEMO_QUOTA);
+                        setInboxNotice('Demo inbox reset to sample items.');
+                        setTimeout(() => setInboxNotice(''), 2500);
+                        return;
+                      }
+                      void loadPage(null, false);
+                    }}
                     onLoadMore={() => void loadPage(nextCursor, true)}
                     onOpenItem={openItem}
                     rowDeleteConfirmId={rowDeleteConfirmId}
