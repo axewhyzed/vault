@@ -142,6 +142,11 @@ export default function App() {
     invalidateRequests();
     detailRequestRef.current += 1;
     detailCache.current.clear();
+    if (isDemo) {
+      uninstallDemoMockTransport();
+      setIsDemo(false);
+      setTourOpen(false);
+    }
     setSession(null);
     setView('signed-out');
     setItems([]);
@@ -156,9 +161,11 @@ export default function App() {
     setDeleteConfirm(false);
     setMessageKind('error');
     setMessage('Your session has expired. Sign in again to continue.');
-    if (window.location.pathname !== '/') window.history.replaceState({}, '', '/');
+    if (window.location.hash === '#demo' || window.location.search.includes('demo=') || window.location.pathname !== '/') {
+      window.history.replaceState(null, '', '/');
+    }
     void fetchCsrf().catch(() => undefined);
-  }, [fetchCsrf]);
+  }, [fetchCsrf, isDemo]);
 
   const restoreSession = useCallback(async () => {
     try {
@@ -700,7 +707,14 @@ export default function App() {
       setDeleteConfirm(false);
       setMessageKind('notice');
       setMessage('You are signed out everywhere. Sign in again on each device you want to keep using.');
-      if (window.location.pathname !== '/') window.history.replaceState({}, '', '/');
+      if (isDemo) {
+        uninstallDemoMockTransport();
+        setIsDemo(false);
+        setTourOpen(false);
+      }
+      if (window.location.hash === '#demo' || window.location.search.includes('demo=') || window.location.pathname !== '/') {
+        window.history.replaceState(null, '', '/');
+      }
     } catch (error) {
       setSecurityModalError(
         error instanceof TypeError
