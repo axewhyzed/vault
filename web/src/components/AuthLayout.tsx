@@ -21,6 +21,7 @@ type AuthLayoutProps = {
   messageKind: 'error' | 'notice';
   identifierRef: RefObject<HTMLInputElement | null>;
   onLogin: (e: FormEvent<HTMLFormElement>) => void | Promise<void>;
+  onEnterDemo: () => void;
 };
 
 export default function AuthLayout({
@@ -35,6 +36,7 @@ export default function AuthLayout({
   messageKind,
   identifierRef,
   onLogin,
+  onEnterDemo,
 }: AuthLayoutProps) {
   return (
     <section className="auth-layout" aria-labelledby="welcome-title">
@@ -63,6 +65,24 @@ export default function AuthLayout({
                 ? 'Vault service ready'
                 : 'Vault is having trouble connecting'}
           </span>
+        </div>
+
+        <div className="auth-demo-box">
+          <button
+            type="button"
+            className="auth-demo-btn"
+            onClick={onEnterDemo}
+            title="Explore Vault in an interactive demo workspace"
+          >
+            <span className="auth-demo-badge" aria-hidden="true">
+              ⚡ DEMO
+            </span>
+            <div className="auth-demo-content">
+              <strong className="auth-demo-title">Explore Interactive Demo</strong>
+              <span className="auth-demo-subtitle">Tour features & test transfers · No sign-in required</span>
+            </div>
+            <ArrowRightIcon size={16} className="auth-demo-arrow" />
+          </button>
         </div>
 
         <div className="auth-apk-download-box">

@@ -8,6 +8,8 @@ import Topbar from './components/Topbar';
 import AuthLayout from './components/AuthLayout';
 import InboxList from './components/InboxList';
 import ItemDetailPanel from './components/ItemDetailPanel';
+import TourGuideModal from './components/TourGuideModal';
+import { DEMO_DETAILS, DEMO_QUOTA, DEMO_SESSION, INITIAL_DEMO_ITEMS } from './demoData';
 import { PlusIcon } from './Icons';
 import type {
   ApiError,
@@ -37,6 +39,20 @@ export default function App() {
 
   const [view, setView] = useState<ViewState>('loading');
   const [session, setSession] = useState<Session | null>(null);
+  const [isDemo, setIsDemo] = useState<boolean>(() => {
+    return (
+      typeof window !== 'undefined' &&
+      (window.location.hash === '#demo' ||
+        new URLSearchParams(window.location.search).get('demo') === 'true')
+    );
+  });
+  const [tourOpen, setTourOpen] = useState<boolean>(() => {
+    return (
+      typeof window !== 'undefined' &&
+      (window.location.hash === '#demo' ||
+        new URLSearchParams(window.location.search).get('demo') === 'true')
+    );
+  });
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -143,6 +159,15 @@ export default function App() {
   }, [fetchCsrf]);
 
   const restoreSession = useCallback(async () => {
+    if (isDemo) {
+      if (mountedRef.current) {
+        setSession(DEMO_SESSION);
+        setQuota(DEMO_QUOTA);
+        setItems(INITIAL_DEMO_ITEMS);
+        setView('signed-in');
+      }
+      return;
+    }
     try {
       const response = await fetch(`${API}/auth/me`, {
         method: 'GET',
@@ -179,7 +204,71 @@ export default function App() {
         );
       }
     }
-  }, [fetchCsrf]);
+  }, [fetchCsrf, isDemo]);
+
+  const enterDemo = useCallback(() => {
+    setIsDemo(true);
+    setSession(DEMO_SESSION);
+    setQuota(DEMO_QUOTA);
+    setItems(INITIAL_DEMO_ITEMS);
+    setView('signed-in');
+    setTourOpen(true);
+    window.location.hash = 'demo';
+  }, []);
+
+  const exitDemo = useCallback(() => {
+    setIsDemo(false);
+    setTourOpen(false);
+    setSession(null);
+    setView('signed-out');
+    setItems([]);
+    setSelectedId(null);
+    setDetail(null);
+    if (window.location.hash === '#demo') {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
+
+  const handleDemoCreateItem = useCallback(
+    (created: {
+      type: 'text' | 'url' | 'file';
+      displayName?: string;
+      textContent?: string | null;
+      sizeBytes: number;
+    }) => {
+      const newItemId = `demo-${Date.now()}`;
+      const newItem: ItemSummary = {
+        id: newItemId,
+        type: created.type,
+        state: 'available',
+        displayName:
+          created.displayName ||
+          (created.type === 'file'
+            ? 'Uploaded attachment'
+            : created.type === 'url'
+              ? 'Saved link'
+              : 'Text note'),
+        sizeBytes: created.sizeBytes,
+        createdAt: new Date().toISOString(),
+        availableAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        version: 1,
+        sourceDevice: { id: 'd-web', name: 'This Browser', platform: 'web' },
+        textContent: created.textContent,
+      };
+      setItems((prev) => [newItem, ...prev]);
+      setQuota((prev) =>
+        prev
+          ? {
+              ...prev,
+              activeItems: prev.activeItems + 1,
+              activeBytes: prev.activeBytes + created.sizeBytes,
+            }
+          : prev
+      );
+    },
+    []
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -424,7 +513,7 @@ export default function App() {
   }
 
   async function loadPage(cursor: string | null, append: boolean, gen = generationRef.current) {
-    if (gen !== generationRef.current) return;
+    if (isDemo || gen !== generationRef.current) return;
     setListBusy(true);
     setListError('');
     try {
@@ -467,6 +556,26 @@ export default function App() {
     setDetail(null);
     setDetailError('');
     setDetailBusy(true);
+
+    if (isDemo) {
+      const demoDetail = DEMO_DETAILS[id] || {
+        ...(items.find((x) => x.id === id) || INITIAL_DEMO_ITEMS[0]),
+        text: items.find((x) => x.id === id)?.textContent || null,
+        contentType:
+          items.find((x) => x.id === id)?.type === 'file'
+            ? 'application/octet-stream'
+            : 'text/plain',
+        sha256:
+          items.find((x) => x.id === id)?.type === 'file'
+            ? '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'
+            : undefined,
+        downloadUrl: '#demo-download',
+      };
+      setDetail(demoDetail);
+      setDetailBusy(false);
+      return;
+    }
+
     try {
       const response = await fetch(`${API}/items/${encodeURIComponent(id)}`, {
         credentials: 'same-origin',
@@ -677,6 +786,17 @@ export default function App() {
 
   async function handleQuickCopy(item: ItemSummary, e: MouseEvent) {
     e.stopPropagation();
+    if (isDemo) {
+      const text = item.textContent || (item.type === 'url' ? item.displayName : 'Sample Vault item');
+      if (text) {
+        const ok = await copyToClipboard(text);
+        if (ok) {
+          setCopiedItemId(item.id);
+          setTimeout(() => setCopiedItemId(null), 2000);
+        }
+      }
+      return;
+    }
     try {
       let text = detailCache.current.get(item.id);
       if (!text) {
@@ -710,6 +830,20 @@ export default function App() {
   }
 
   function downloadAttachment(downloadUrlPath: string, name?: string | null) {
+    if (isDemo) {
+      const blob = new Blob([`Vault Demo Attachment Content: ${name || 'sample'}`], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name?.trim() || 'vault-demo-attachment.txt';
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setCopyMessage('Download started (Demo).');
+      setTimeout(() => setCopyMessage(''), 2500);
+      return;
+    }
     setCopyMessage('Starting download…');
     try {
       const url = new URL(downloadUrlPath, window.location.origin);
@@ -738,6 +872,17 @@ export default function App() {
     e.stopPropagation();
     if (rowDeleteConfirmId !== id) {
       setRowDeleteConfirmId(id);
+      return;
+    }
+    if (isDemo) {
+      setItems((prev) => prev.filter((i) => i.id !== id));
+      if (selectedId === id) {
+        setSelectedId(null);
+        window.history.replaceState({}, '', '/');
+      }
+      setRowDeleteConfirmId(null);
+      setInboxNotice('Item deleted (Demo).');
+      setTimeout(() => setInboxNotice(''), 3000);
       return;
     }
     try {
@@ -770,6 +915,17 @@ export default function App() {
 
   async function deleteDetailItem() {
     if (!detail || deleteBusy) return;
+    if (isDemo) {
+      setItems((previous) => previous.filter((item) => item.id !== detail.id));
+      setDeleteConfirm(false);
+      setDetail(null);
+      window.history.replaceState({}, '', '/');
+      setSelectedId(null);
+      setCopyMessage('');
+      setInboxNotice('Item deleted (Demo).');
+      setTimeout(() => setInboxNotice(''), 3000);
+      return;
+    }
     setDeleteBusy(true);
     setDetailError('');
     try {
@@ -863,6 +1019,8 @@ export default function App() {
           setSecurityModalOpen(true);
         }}
         onLogout={() => void handleLogout()}
+        isDemo={isDemo}
+        onExitDemo={exitDemo}
       />
 
       {serviceOnline === false && (
@@ -893,12 +1051,41 @@ export default function App() {
           messageKind={messageKind}
           identifierRef={identifierRef}
           onLogin={handleLogin}
+          onEnterDemo={enterDemo}
         />
       )}
 
       {/* Signed-in Zero-Waste Dashboard */}
       {view === 'signed-in' && session && (
         <section className="inbox-layout" aria-label="Vault Workspace">
+          {isDemo && (
+            <div className="demo-ribbon" role="region" aria-label="Demo mode banner">
+              <div className="demo-ribbon-left">
+                <span className="demo-ribbon-pill font-mono">⚡ LIVE DEMO</span>
+                <span className="demo-ribbon-text">
+                  You are previewing Vault with simulated transfers. Data is stored locally in your browser.
+                </span>
+              </div>
+              <div className="demo-ribbon-actions">
+                <button
+                  type="button"
+                  className="demo-ribbon-btn"
+                  onClick={() => setTourOpen(true)}
+                  title="Replay guided tour"
+                >
+                  Replay Tour
+                </button>
+                <button
+                  type="button"
+                  className="demo-ribbon-btn demo-ribbon-btn--primary"
+                  onClick={exitDemo}
+                  title="Exit demo and sign in"
+                >
+                  Exit Demo & Sign In
+                </button>
+              </div>
+            </div>
+          )}
           <div className={`vault-workspace ${selectedId ? 'vault-workspace--detail' : ''}`}>
             {/* Left Panel: Unified Compose Hub (360px–400px) */}
             <div className={`send-stack ${!mobileComposeOpen ? 'mobile-collapsed' : ''}`}>
@@ -919,6 +1106,8 @@ export default function App() {
                 onUnauthorized={signOutOnUnauthorized}
                 fetchCsrf={fetchCsrf}
                 handleApiFailure={handleApiFailure}
+                isDemo={isDemo}
+                onDemoCreateItem={handleDemoCreateItem}
               />
             </div>
 
@@ -1004,6 +1193,7 @@ export default function App() {
         isOpen={pairModalOpen}
         onClose={() => setPairModalOpen(false)}
         onUnauthorized={signOutOnUnauthorized}
+        isDemo={isDemo}
         onDevicePaired={() => {
           setInboxNotice('Android phone paired successfully!');
           setTimeout(() => setInboxNotice(''), 4000);
@@ -1017,6 +1207,12 @@ export default function App() {
         onConfirm={handleRevokeEverywhere}
         busy={securityModalBusy}
         error={securityModalError}
+      />
+
+      <TourGuideModal
+        isOpen={tourOpen}
+        onClose={() => setTourOpen(false)}
+        onFinish={() => setTourOpen(false)}
       />
     </main>
   );
