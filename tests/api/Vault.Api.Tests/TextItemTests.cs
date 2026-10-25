@@ -441,7 +441,7 @@ public sealed class TextItemTests
         var sendTask = owner.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation.Token);
         await content.PrefixWritten.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await host.WaitForUploadStateAsync(id, "receiving");
-        Assert.True(File.Exists(host.GetStagingPath(stagingKey)));
+        await host.WaitForStagingFileExistsAsync(stagingKey);
 
         cancellation.Cancel();
         content.Abort();
@@ -459,7 +459,7 @@ public sealed class TextItemTests
         else Assert.True(clientAborted, "The upload must be aborted at the HTTP client transport.");
 
         await host.WaitForUploadStateAsync(id, "initiated");
-        Assert.False(File.Exists(host.GetStagingPath(stagingKey)));
+        await host.WaitForStagingFileExistsAsync(stagingKey, expected: false);
         Assert.Contains("upload_failed", await host.GetAuditDataAsync(), StringComparison.Ordinal);
 
         using var retry = await host.SendRawUploadAsync(owner, id, key, payload);
@@ -1011,6 +1011,17 @@ public sealed class TextItemTests
                 await Task.Delay(20);
             }
             Assert.Equal(expected, await GetUploadStateAsync(uploadId));
+        }
+
+        public async Task WaitForStagingFileExistsAsync(string stagingKey, bool expected = true)
+        {
+            var path = GetStagingPath(stagingKey);
+            for (var attempt = 0; attempt < 250; attempt++)
+            {
+                if (File.Exists(path) == expected) return;
+                await Task.Delay(20);
+            }
+            Assert.Equal(expected, File.Exists(path));
         }
 
         public async Task<int> CountAuditEventsAsync(string eventType)
