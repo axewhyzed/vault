@@ -422,7 +422,7 @@ internal fun ReviewSendScreen(
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         supportingText = {
-                            Text(if (retentionUnit == "hours") "1–168 hours" else "1–7 days")
+                            Text(if (retentionUnit == "hours") "1-168 hours" else "1-7 days")
                         },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1.1f)
@@ -458,7 +458,7 @@ internal fun ReviewSendScreen(
                             onDismissRequest = { unitDropdownExpanded = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Days (1–7)") },
+                                text = { Text("Days (1-7)") },
                                 onClick = {
                                     if (retentionUnit != "days") {
                                         val currentVal = retentionAmountText.toIntOrNull() ?: 24
@@ -470,7 +470,7 @@ internal fun ReviewSendScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Hours (1–168)") },
+                                text = { Text("Hours (1-168)") },
                                 onClick = {
                                     if (retentionUnit != "hours") {
                                         val currentVal = retentionAmountText.toIntOrNull() ?: 1

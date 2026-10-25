@@ -6,7 +6,7 @@ The paired Vault app supports sending from inside the app and from Android's Sha
 
 1. Open **Send** and choose **Text**, **Link**, or **File**.
 2. Enter or select the content. Text preserves its exact contents; links must be complete HTTP(S) URLs; files are copied to Vault's encrypted private spool and limited to 100 MB.
-3. Tap **Review send**. Check the full content, destination, and retention period (1–7 days).
+3. Tap **Review send**. Check the full content, destination, and retention period (1-7 days).
 4. Tap **Send to Vault**. Use **Activity** to see queued, sending, retrying, failed, and server-accepted sends.
 
 Choosing **Text** keeps URL-looking text as text. Choosing **Link** sends it as a link. Vault does not fetch link previews.

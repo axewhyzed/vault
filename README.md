@@ -24,9 +24,9 @@ Ever find yourself emailing a link to yourself, messaging a bot on Telegram or W
 
 **Vault replaces those workarounds.** It gives you a private, self-hosted inbox that connects your desktop browser and your Android phone directly:
 
-1. **Paste or drop on your PC** — links, text notes, code snippets, or files up to 100 MB.
-2. **It arrives on your phone immediately** — with smart one-tap actions to open, copy, or download.
-3. **No third-party cloud required** — your data runs on your own hardware, with zero tracking, no ads, and no subscription fees.
+1. **Paste or drop on your PC** - links, text notes, code snippets, or files up to 100 MB.
+2. **It arrives on your phone immediately** - with smart one-tap actions to open, copy, or download.
+3. **No third-party cloud required** - your data runs on your own hardware, with zero tracking, no ads, and no subscription fees.
 
 ---
 
@@ -102,7 +102,7 @@ Ever find yourself emailing a link to yourself, messaging a bot on Telegram or W
 - 🔍 **Live Search:** Search received items instantly by file name, text content, payload type, or sending device across both web and mobile.
 - 📱 **Connected Devices & Remote Revocation:** Inspect all active devices and browser sessions from the web workspace or Android Hub. Terminate stale sessions remotely with one click.
 - 🔄 **Reactive Session State & Auto-Expiry:** 14-day sliding refresh tokens automatically clean up on expiration. Foreground app resumes proactively verify token health without interrupting offline workflows, instantly routing to the sign-in screen if revoked.
-- 🧹 **Flexible Retention & Automated Reaper:** Keep items for hours (1–168h) or days (1–7d). An automated background worker sweeps expired items and orphaned files on schedule.
+- 🧹 **Flexible Retention & Automated Reaper:** Keep items for hours (1-168h) or days (1-7d). An automated background worker sweeps expired items and orphaned files on schedule.
 - 📁 **Custom Download Folder (Android):** Choose where files get saved on your phone (e.g. `Downloads/Vault`) using the standard Android folder picker. Once selected, downloads save there automatically without asking each time.
 - 🔒 **Granular Session Control:** Log out of your current device with one tap, or revoke all active sessions across all devices from the confirmed security modal.
 
@@ -139,7 +139,7 @@ flowchart LR
 
 ### Technical Details
 
-- **Backend API (`src/api/Vault.Api`):** Built with ASP.NET Core 10 Minimal APIs and EF Core. File uploads are streamed directly from HTTP request bodies into a mounted disk volume—files never buffer in server RAM or bloat the database. Uploads calculate SHA-256 hashes on the fly to guarantee payload integrity. Active sessions are automatically deduplicated per physical device/browser to eliminate ghost sessions. An automated background worker periodically cleans expired items and orphaned staging files. In development mode, native OpenAPI 3.1 documentation is served via an interactive Scalar reference at `/scalar/v1`.
+- **Backend API (`src/api/Vault.Api`):** Built with ASP.NET Core 10 Minimal APIs and EF Core. File uploads are streamed directly from HTTP request bodies into a mounted disk volume - files never buffer in server RAM or bloat the database. Uploads calculate SHA-256 hashes on the fly to guarantee payload integrity. Active sessions are automatically deduplicated per physical device/browser to eliminate ghost sessions. An automated background worker periodically cleans expired items and orphaned staging files. In development mode, native OpenAPI 3.1 documentation is served via an interactive Scalar reference at `/scalar/v1`.
 - **Desktop Web Client (`web/`):** React 19 + TypeScript single-page application served via Nginx. Session management uses `HttpOnly`, `SameSite=Lax`, encrypted cookies paired with anti-CSRF tokens to protect against cross-origin attacks. Includes real-time connected device inspection, remote device revocation, and keyboard shortcuts (`/` to search, `Escape` to close modals).
 - **Android Client (`android/`):** Native Kotlin application built with Jetpack Compose and Material 3.
   - **Branding & Splash:** Custom chiseled dual-tone shield icon and native Android 12+ Splash Screen (`androidx.core:core-splashscreen`) for instantaneous, glitch-free cold launches.
@@ -194,8 +194,8 @@ adb install -r vault-debug-v0.8.0.apk
 ```
 
 ### 2. Sign In or Pair
-- **Option A — Scan QR Code (Recommended):** Click **Pair Phone** in the web topbar, open the app on your phone, and tap **Scan QR Code**. Pairing completes in about one second.
-- **Option B — Username & Password:** Tap **Sign In with Credentials**, enter your username and password, and tap Sign In. (The server URL defaults automatically to your host, or can be expanded to point to a custom domain).
+- **Option A - Scan QR Code (Recommended):** Click **Pair Phone** in the web topbar, open the app on your phone, and tap **Scan QR Code**. Pairing completes in about one second.
+- **Option B - Username & Password:** Tap **Sign In with Credentials**, enter your username and password, and tap Sign In. (The server URL defaults automatically to your host, or can be expanded to point to a custom domain).
 
 Once signed in, the app maintains a 14-day sliding session that refreshes automatically as you use it.
 

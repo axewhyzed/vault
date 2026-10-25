@@ -1,4 +1,4 @@
-# Vault — OVH VPS Production Hosting & Deployment Log
+# Vault - OVH VPS Production Hosting & Deployment Log
 
 **Host:** OVH Singapore VPS (`51.79.206.27`)  
 **Domain:** `vault.axewhyzedlabs.co.in`  
