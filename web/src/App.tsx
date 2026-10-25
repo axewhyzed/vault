@@ -9,7 +9,7 @@ import AuthLayout from './components/AuthLayout';
 import InboxList from './components/InboxList';
 import ItemDetailPanel from './components/ItemDetailPanel';
 import TourGuideModal from './components/TourGuideModal';
-import { DEMO_DETAILS, DEMO_QUOTA, DEMO_SESSION, INITIAL_DEMO_ITEMS } from './demoData';
+import { installDemoMockTransport, uninstallDemoMockTransport } from './demo/mockTransport';
 import { PlusIcon } from './Icons';
 import type {
   ApiError,
@@ -40,11 +40,12 @@ export default function App() {
   const [view, setView] = useState<ViewState>('loading');
   const [session, setSession] = useState<Session | null>(null);
   const [isDemo, setIsDemo] = useState<boolean>(() => {
-    return (
-      typeof window !== 'undefined' &&
-      (window.location.hash === '#demo' ||
-        new URLSearchParams(window.location.search).get('demo') === 'true')
-    );
+    if (typeof window === 'undefined') return false;
+    const active =
+      window.location.hash === '#demo' ||
+      new URLSearchParams(window.location.search).get('demo') === 'true';
+    if (active) installDemoMockTransport();
+    return active;
   });
   const [tourOpen, setTourOpen] = useState<boolean>(() => {
     return (
@@ -138,7 +139,6 @@ export default function App() {
   }, []);
 
   const signOutOnUnauthorized = useCallback(() => {
-    if (isDemo) return;
     invalidateRequests();
     detailRequestRef.current += 1;
     detailCache.current.clear();
@@ -149,6 +149,7 @@ export default function App() {
     setDetail(null);
     setSelectedId(null);
     setPairModalOpen(false);
+    setDevicesModalOpen(false);
     setSecurityModalOpen(false);
     setUserMenuOpen(false);
     setInboxNotice('');
@@ -157,18 +158,9 @@ export default function App() {
     setMessage('Your session has expired. Sign in again to continue.');
     if (window.location.pathname !== '/') window.history.replaceState({}, '', '/');
     void fetchCsrf().catch(() => undefined);
-  }, [fetchCsrf, isDemo]);
+  }, [fetchCsrf]);
 
   const restoreSession = useCallback(async () => {
-    if (isDemo) {
-      if (mountedRef.current) {
-        setSession(DEMO_SESSION);
-        setQuota(DEMO_QUOTA);
-        setItems(INITIAL_DEMO_ITEMS);
-        setView('signed-in');
-      }
-      return;
-    }
     try {
       const response = await fetch(`${API}/auth/me`, {
         method: 'GET',
@@ -205,19 +197,18 @@ export default function App() {
         );
       }
     }
-  }, [fetchCsrf, isDemo]);
+  }, [fetchCsrf]);
 
   const enterDemo = useCallback(() => {
+    installDemoMockTransport();
     setIsDemo(true);
-    setSession(DEMO_SESSION);
-    setQuota(DEMO_QUOTA);
-    setItems(INITIAL_DEMO_ITEMS);
-    setView('signed-in');
     setTourOpen(true);
     window.location.hash = 'demo';
-  }, []);
+    void restoreSession();
+  }, [restoreSession]);
 
   const exitDemo = useCallback(() => {
+    uninstallDemoMockTransport();
     setIsDemo(false);
     setTourOpen(false);
     setSession(null);
@@ -228,6 +219,7 @@ export default function App() {
     setDetail(null);
     setInboxNotice('');
     setPairModalOpen(false);
+    setDevicesModalOpen(false);
     setSecurityModalOpen(false);
     setUserMenuOpen(false);
     if (window.location.hash === '#demo' || window.location.search.includes('demo=')) {
@@ -235,55 +227,10 @@ export default function App() {
     }
   }, []);
 
-  const handleDemoCreateItem = useCallback(
-    (created: {
-      type: 'text' | 'url' | 'file';
-      displayName?: string;
-      textContent?: string | null;
-      sizeBytes: number;
-    }) => {
-      const newItemId = `demo-${Date.now()}`;
-      const newItem: ItemSummary = {
-        id: newItemId,
-        type: created.type,
-        state: 'available',
-        displayName:
-          created.displayName ||
-          (created.type === 'file'
-            ? 'Uploaded attachment'
-            : created.type === 'url'
-              ? 'Saved link'
-              : 'Text note'),
-        sizeBytes: created.sizeBytes,
-        createdAt: new Date().toISOString(),
-        availableAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        version: 1,
-        sourceDevice: { id: 'd-web', name: 'This Browser', platform: 'web' },
-        textContent: created.textContent,
-      };
-      setItems((prev) => [newItem, ...prev]);
-      setQuota((prev) =>
-        prev
-          ? {
-              ...prev,
-              activeItems: prev.activeItems + 1,
-              activeBytes: prev.activeBytes + created.sizeBytes,
-            }
-          : prev
-      );
-    },
-    []
-  );
-
   useEffect(() => {
     mountedRef.current = true;
     void restoreSession();
     const checkHealth = async () => {
-      if (isDemo) {
-        if (mountedRef.current) setServiceOnline(true);
-        return;
-      }
       try {
         const response = await fetch('/health/ready', { cache: 'no-store' });
         if (mountedRef.current) setServiceOnline(response.ok);
@@ -319,7 +266,7 @@ export default function App() {
       window.removeEventListener('dragover', handleGlobalDragOver);
       window.removeEventListener('drop', handleGlobalDrop);
     };
-  }, [restoreSession, isDemo]);
+  }, [restoreSession]);
 
   useEffect(() => {
     if (view !== 'signed-in' || !session) return;
@@ -333,7 +280,7 @@ export default function App() {
 
   // Adaptive periodic inbox polling: sync every 8 seconds when active, paused in background
   useEffect(() => {
-    if (isDemo || view !== 'signed-in' || !session) return undefined;
+    if (view !== 'signed-in' || !session) return undefined;
 
     let timer: number | null = null;
 
@@ -374,7 +321,7 @@ export default function App() {
       if (timer) window.clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [view, session, signOutOnUnauthorized, isDemo]);
+  }, [view, session, signOutOnUnauthorized]);
 
   useEffect(() => {
     if (view !== 'signed-in' || !session) return;
@@ -523,7 +470,7 @@ export default function App() {
   }
 
   async function loadPage(cursor: string | null, append: boolean, gen = generationRef.current) {
-    if (isDemo || gen !== generationRef.current) return;
+    if (gen !== generationRef.current) return;
     setListBusy(true);
     setListError('');
     try {
@@ -566,25 +513,6 @@ export default function App() {
     setDetail(null);
     setDetailError('');
     setDetailBusy(true);
-
-    if (isDemo) {
-      const demoDetail = DEMO_DETAILS[id] || {
-        ...(items.find((x) => x.id === id) || INITIAL_DEMO_ITEMS[0]),
-        text: items.find((x) => x.id === id)?.textContent || null,
-        contentType:
-          items.find((x) => x.id === id)?.type === 'file'
-            ? 'application/octet-stream'
-            : 'text/plain',
-        sha256:
-          items.find((x) => x.id === id)?.type === 'file'
-            ? '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'
-            : undefined,
-        downloadUrl: '#demo-download',
-      };
-      setDetail(demoDetail);
-      setDetailBusy(false);
-      return;
-    }
 
     try {
       const response = await fetch(`${API}/items/${encodeURIComponent(id)}`, {
@@ -734,13 +662,6 @@ export default function App() {
 
   async function handleRevokeEverywhere() {
     if (securityModalBusy) return;
-    if (isDemo) {
-      setSecurityModalOpen(false);
-      exitDemo();
-      setMessageKind('notice');
-      setMessage('Demo mode reset. All simulated sessions revoked.');
-      return;
-    }
     setSecurityModalBusy(true);
     setSecurityModalError('');
     try {
@@ -807,17 +728,6 @@ export default function App() {
 
   async function handleQuickCopy(item: ItemSummary, e: MouseEvent) {
     e.stopPropagation();
-    if (isDemo) {
-      const text = item.textContent || (item.type === 'url' ? item.displayName : 'Sample Vault item');
-      if (text) {
-        const ok = await copyToClipboard(text);
-        if (ok) {
-          setCopiedItemId(item.id);
-          setTimeout(() => setCopiedItemId(null), 2000);
-        }
-      }
-      return;
-    }
     try {
       let text = detailCache.current.get(item.id);
       if (!text) {
@@ -851,27 +761,14 @@ export default function App() {
   }
 
   function downloadAttachment(downloadUrlPath: string, name?: string | null) {
-    if (isDemo) {
-      const blob = new Blob([`Vault Demo Attachment Content: ${name || 'sample'}`], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = name?.trim() || 'vault-demo-attachment.txt';
-      document.body.append(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      setCopyMessage('Download started (Demo).');
-      setTimeout(() => setCopyMessage(''), 2500);
-      return;
-    }
     setCopyMessage('Starting download…');
     try {
-      const url = new URL(downloadUrlPath, window.location.origin);
-      if (url.origin !== window.location.origin || !url.pathname.startsWith(`${API}/`))
+      const isDataUrl = downloadUrlPath.startsWith('data:');
+      const url = isDataUrl ? null : new URL(downloadUrlPath, window.location.origin);
+      if (!isDataUrl && (url?.origin !== window.location.origin || !url?.pathname.startsWith(`${API}/`)))
         throw new Error('Vault returned an invalid download address.');
       const link = document.createElement('a');
-      link.href = `${url.pathname}${url.search}`;
+      link.href = isDataUrl ? downloadUrlPath : `${url!.pathname}${url!.search}`;
       link.download = name?.trim() || 'vault-attachment';
       link.rel = 'noopener';
       document.body.append(link);
@@ -895,29 +792,6 @@ export default function App() {
       setRowDeleteConfirmId(id);
       return;
     }
-    if (isDemo) {
-      const deletedItem = items.find((i) => i.id === id);
-      setItems((prev) => prev.filter((i) => i.id !== id));
-      if (deletedItem) {
-        setQuota((prev) =>
-          prev
-            ? {
-                ...prev,
-                activeItems: Math.max(0, prev.activeItems - 1),
-                activeBytes: Math.max(0, prev.activeBytes - deletedItem.sizeBytes),
-              }
-            : prev
-        );
-      }
-      if (selectedId === id) {
-        setSelectedId(null);
-        window.history.replaceState({}, '', isDemo ? '/#demo' : '/');
-      }
-      setRowDeleteConfirmId(null);
-      setInboxNotice('Item deleted (Demo).');
-      setTimeout(() => setInboxNotice(''), 3000);
-      return;
-    }
     try {
       const token = await fetchCsrf();
       const response = await fetch(`${API}/items/${encodeURIComponent(id)}`, {
@@ -935,7 +809,7 @@ export default function App() {
       setItems((prev) => prev.filter((i) => i.id !== id));
       if (selectedId === id) {
         setSelectedId(null);
-        window.history.replaceState({}, '', '/');
+        window.history.replaceState({}, '', isDemo ? '/#demo' : '/');
       }
       setRowDeleteConfirmId(null);
       setInboxNotice('Item deleted.');
@@ -948,27 +822,6 @@ export default function App() {
 
   async function deleteDetailItem() {
     if (!detail || deleteBusy) return;
-    if (isDemo) {
-      const deletedItem = detail;
-      setItems((previous) => previous.filter((item) => item.id !== detail.id));
-      setQuota((prev) =>
-        prev && deletedItem
-          ? {
-              ...prev,
-              activeItems: Math.max(0, prev.activeItems - 1),
-              activeBytes: Math.max(0, prev.activeBytes - deletedItem.sizeBytes),
-            }
-          : prev
-      );
-      setDeleteConfirm(false);
-      setDetail(null);
-      window.history.replaceState({}, '', isDemo ? '/#demo' : '/');
-      setSelectedId(null);
-      setCopyMessage('');
-      setInboxNotice('Item deleted (Demo).');
-      setTimeout(() => setInboxNotice(''), 3000);
-      return;
-    }
     setDeleteBusy(true);
     setDetailError('');
     try {
@@ -989,20 +842,14 @@ export default function App() {
       setItems((previous) => previous.filter((item) => item.id !== detail.id));
       setDeleteConfirm(false);
       setDetail(null);
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', isDemo ? '/#demo' : '/');
       setSelectedId(null);
       setCopyMessage('');
       setInboxNotice('Item deleted.');
       setTimeout(() => setInboxNotice(''), 3000);
-      await loadPage(null, false, gen);
+      void loadPage(null, false, gen);
     } catch (error) {
-      setDetailError(
-        error instanceof TypeError
-          ? 'Vault is unreachable. Check your connection and retry.'
-          : error instanceof Error
-            ? error.message
-            : 'Could not delete this item.'
-      );
+      setDetailError(error instanceof Error ? error.message : 'Could not delete this item.');
     } finally {
       setDeleteBusy(false);
     }
@@ -1149,8 +996,6 @@ export default function App() {
                 onUnauthorized={signOutOnUnauthorized}
                 fetchCsrf={fetchCsrf}
                 handleApiFailure={handleApiFailure}
-                isDemo={isDemo}
-                onDemoCreateItem={handleDemoCreateItem}
               />
             </div>
 
@@ -1173,16 +1018,7 @@ export default function App() {
                     listError={listError}
                     inboxNotice={inboxNotice}
                     nextCursor={nextCursor}
-                    onRefresh={() => {
-                      if (isDemo) {
-                        setItems(INITIAL_DEMO_ITEMS);
-                        setQuota(DEMO_QUOTA);
-                        setInboxNotice('Demo inbox reset to sample items.');
-                        setTimeout(() => setInboxNotice(''), 2500);
-                        return;
-                      }
-                      void loadPage(null, false);
-                    }}
+                    onRefresh={() => void loadPage(null, false)}
                     onLoadMore={() => void loadPage(nextCursor, true)}
                     onOpenItem={openItem}
                     rowDeleteConfirmId={rowDeleteConfirmId}
@@ -1239,14 +1075,12 @@ export default function App() {
         }}
         onUnauthorized={signOutOnUnauthorized}
         fetchCsrf={fetchCsrf}
-        isDemo={isDemo}
       />
 
       <PairDeviceModal
         isOpen={pairModalOpen}
         onClose={() => setPairModalOpen(false)}
         onUnauthorized={signOutOnUnauthorized}
-        isDemo={isDemo}
         onDevicePaired={() => {
           setInboxNotice('Android phone paired successfully!');
           setTimeout(() => setInboxNotice(''), 4000);

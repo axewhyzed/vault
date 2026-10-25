@@ -53,23 +53,9 @@ type Props = {
   onUnauthorized: () => void;
   fetchCsrf: () => Promise<Csrf>;
   handleApiFailure: (response: Response) => Promise<string>;
-  isDemo?: boolean;
-  onDemoCreateItem?: (item: {
-    type: 'text' | 'url' | 'file';
-    displayName?: string;
-    textContent?: string | null;
-    sizeBytes: number;
-  }) => void;
 };
 
-export default function ComposeHub({
-  onSuccess,
-  onUnauthorized,
-  fetchCsrf,
-  handleApiFailure,
-  isDemo,
-  onDemoCreateItem,
-}: Props) {
+export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handleApiFailure }: Props) {
   const [tab, setTab] = useState<'text' | 'url' | 'file'>('text');
   const [retentionValue, setRetentionValue] = useState(7);
   const [retentionUnit, setRetentionUnit] = useState<'days' | 'hours'>('days');
@@ -175,28 +161,6 @@ export default function ComposeHub({
     setSendBusy(true);
     setSendMessage('');
     setSendError(false);
-
-    if (isDemo) {
-      await new Promise((r) => setTimeout(r, 200));
-      const createdContent = tab === 'text' ? textContent : trimmed;
-      onDemoCreateItem?.({
-        type: tab,
-        displayName: rawLabel.trim() || (tab === 'url' ? 'Saved link' : 'Text note'),
-        textContent: createdContent,
-        sizeBytes: new TextEncoder().encode(createdContent).byteLength,
-      });
-      if (tab === 'text') {
-        setTextContent('');
-        setTextLabel('');
-      } else {
-        setUrlContent('');
-        setUrlLabel('');
-      }
-      setSendMessage(tab === 'url' ? 'Link saved to Vault (Demo).' : 'Text added to Vault (Demo).');
-      setSendBusy(false);
-      onSuccess();
-      return;
-    }
 
     try {
       const csrf = await fetchCsrf();
@@ -459,28 +423,6 @@ export default function ComposeHub({
     const generation = ++generationRef.current;
     setUploadMessage('');
     setUploadProgress(0);
-
-    if (isDemo) {
-      setUploadPhase('uploading');
-      setUploadMessage('Simulating encrypted upload…');
-      setUploadProgress(45);
-      await new Promise((r) => setTimeout(r, 180));
-      setUploadProgress(100);
-      onDemoCreateItem?.({
-        type: 'file',
-        displayName: fileLabel.trim() || file.name,
-        textContent: null,
-        sizeBytes: file.size,
-      });
-      setUploadPhase('idle');
-      setFile(null);
-      setFileLabel('');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      setUploadMessage('File successfully added to Vault (Demo).');
-      setUploadProgress(0);
-      onSuccess();
-      return;
-    }
 
     try {
       let upload = uploadRef.current;
