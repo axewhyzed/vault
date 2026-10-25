@@ -30,7 +30,6 @@ type UploadPhase =
   | 'failed-upload'
   | 'failed-complete'
   | 'restart-required'
-  | 'complete'
   | 'cancelled';
 
 const API = '/api/v1';
@@ -75,7 +74,6 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>('idle');
   const [uploadMessage, setUploadMessage] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadSha256, setUploadSha256] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
 
   const [sendBusy, setSendBusy] = useState(false);
@@ -106,9 +104,8 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
 
   function resetSendFeedback() {
     setRetryIntent(null);
-    if (sendMessage.startsWith('Vault may have received')) {
-      setSendMessage('');
-    }
+    setSendMessage('');
+    setUploadMessage('');
   }
 
   // --- Text & URL Submission ---
@@ -241,16 +238,21 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
 
     if (next && next.size === 0) {
       setFile(null);
+      setFileLabel('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       setUploadPhase('failed-initiate');
       setUploadMessage('Cannot upload empty (0-byte) files. Choose a valid file.');
       return;
     }
 
     setFile(next);
+    if (!next) {
+      setFileLabel('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
     setUploadPhase('idle');
     setUploadMessage('');
     setUploadProgress(0);
-    setUploadSha256('');
     intentKeyRef.current = next ? crypto.randomUUID() : null;
     intentRetentionRef.current = null;
     uploadRef.current = null;
@@ -372,9 +374,15 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
         throw new Error('Vault returned an invalid completion response. Retry finalization.');
       }
       if (generation !== generationRef.current || !mountedRef.current) return;
-      setUploadPhase('complete');
+      setUploadPhase('idle');
+      setFile(null);
+      setFileLabel('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      uploadRef.current = null;
+      intentKeyRef.current = null;
+      intentRetentionRef.current = null;
       setUploadMessage('File successfully added to Vault.');
-      setUploadProgress(100);
+      setUploadProgress(0);
       onSuccess();
     } catch (error) {
       if (generation !== generationRef.current || !mountedRef.current) return;
@@ -415,7 +423,6 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
     const generation = ++generationRef.current;
     setUploadMessage('');
     setUploadProgress(0);
-    setUploadSha256('');
     try {
       let upload = uploadRef.current;
       if (mode === 'complete') {
@@ -484,9 +491,8 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
       }
       setUploadPhase('uploading');
       setUploadMessage('Uploading file to Vault…');
-      const result = await putFile(upload, file, key, generation);
+      await putFile(upload, file, key, generation);
       if (generation !== generationRef.current || !mountedRef.current) return;
-      setUploadSha256(result.sha256);
       await completeUpload(upload, key, generation);
     } catch (error) {
       if (generation !== generationRef.current || !mountedRef.current) return;
@@ -949,14 +955,6 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
             </div>
           )}
 
-          {/* SHA-256 hash */}
-          {uploadSha256 && (
-            <div className="upload-hash-pill">
-              <span>SHA-256</span>
-              <code>{uploadSha256}</code>
-            </div>
-          )}
-
           {/* Upload Status message */}
           {uploadMessage && (
             <div
@@ -969,15 +967,7 @@ export default function ComposeHub({ onSuccess, onUnauthorized, fetchCsrf, handl
           )}
 
           <div className="compose-actions">
-            {uploadPhase === 'complete' ? (
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => selectFile(null)}
-              >
-                Choose another file
-              </button>
-            ) : uploadPhase === 'restart-required' ? (
+            {uploadPhase === 'restart-required' ? (
               <button
                 className="primary-button"
                 type="button"
