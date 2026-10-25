@@ -112,3 +112,4 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 export const VAULT_ANDROID_RELEASE_URL = 'https://github.com/axewhyzed/vault/releases/latest';
+export const VAULT_GITHUB_REPO_URL = 'https://github.com/axewhyzed/vault';

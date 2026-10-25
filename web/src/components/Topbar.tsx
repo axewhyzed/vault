@@ -1,10 +1,11 @@
 import type { RefObject } from 'react';
 import type { Session, Quota, ViewState } from '../types';
-import { formatBytes, VAULT_ANDROID_RELEASE_URL } from '../utils';
+import { formatBytes, VAULT_ANDROID_RELEASE_URL, VAULT_GITHUB_REPO_URL } from '../utils';
 import {
   AndroidIcon,
   ChevronDownIcon,
   DevicesIcon,
+  GithubIcon,
   MoonIcon,
   QrCodeIcon,
   ShieldLockIcon,
@@ -148,6 +149,17 @@ export default function Topbar({
           </>
         )}
 
+        <a
+          href={VAULT_GITHUB_REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="topbar-icon-btn"
+          aria-label="Vault on GitHub (opens in a new tab)"
+          title="View Vault repository on GitHub"
+        >
+          <GithubIcon size={16} />
+        </a>
+
         <button
           type="button"
           className="theme-toggle-btn"
@@ -211,6 +223,18 @@ export default function Topbar({
                 >
                   <AndroidIcon size={14} />
                   <span>Download Android APK (v1.0.0)…</span>
+                </a>
+
+                <a
+                  href={VAULT_GITHUB_REPO_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="dropdown-item"
+                  role="menuitem"
+                  onClick={() => setUserMenuOpen(false)}
+                >
+                  <GithubIcon size={14} />
+                  <span>GitHub repository…</span>
                 </a>
 
                 <div className="dropdown-divider" role="separator" />

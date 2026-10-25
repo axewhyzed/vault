@@ -397,6 +397,7 @@ button:disabled { cursor: not-allowed; }
   color: var(--green);
 }
 
+.topbar-icon-btn,
 .theme-toggle-btn {
   display: inline-flex;
   align-items: center;
@@ -408,14 +409,22 @@ button:disabled { cursor: not-allowed; }
   border-radius: 6px;
   background: var(--card);
   color: var(--ink);
+  text-decoration: none;
   cursor: pointer;
   transition: all 140ms ease;
 }
 
+.topbar-icon-btn:hover,
 .theme-toggle-btn:hover {
   background: var(--hover-bg);
   border-color: var(--input-focus-border);
   color: var(--green);
+}
+
+.topbar-icon-btn:focus-visible,
+.theme-toggle-btn:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
 }
 
 /* User Menu & Popover */
@@ -683,6 +692,42 @@ button:disabled { cursor: not-allowed; }
 .auth-apk-download-btn:hover .auth-apk-arrow {
   color: var(--green);
   transform: translateY(2px);
+}
+
+.auth-repo-link-wrap {
+  margin-top: 14px;
+}
+
+.auth-repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-secondary);
+  text-decoration: none;
+  padding: 4px 0;
+  transition: color 0.15s ease;
+}
+
+.auth-repo-link:hover {
+  color: var(--green);
+}
+
+.auth-repo-link-arrow {
+  color: var(--muted);
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.auth-repo-link:hover .auth-repo-link-arrow {
+  color: var(--green);
+  transform: translate(1px, -1px);
+}
+
+.auth-repo-link:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .auth-card {
