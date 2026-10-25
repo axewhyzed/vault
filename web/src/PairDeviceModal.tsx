@@ -126,7 +126,7 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
 
   // Poll for Android pairing completion
   useEffect(() => {
-    if (!isOpen || !pairing || pairedSuccess) return undefined;
+    if (!isOpen || !pairing || pairedSuccess || isDemo) return undefined;
     const pollInterval = window.setInterval(async () => {
       try {
         const res = await fetch(`${API}/devices`, {
@@ -158,7 +158,7 @@ export default function PairDeviceModal({ isOpen, onClose, onUnauthorized, onDev
     }, 2500);
 
     return () => window.clearInterval(pollInterval);
-  }, [isOpen, pairing, pairedSuccess, onClose, onUnauthorized, onDevicePaired]);
+  }, [isOpen, pairing, pairedSuccess, onClose, onUnauthorized, onDevicePaired, isDemo]);
 
   async function createPairing() {
     if (busy) return;

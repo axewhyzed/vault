@@ -67,21 +67,14 @@ export default function AuthLayout({
           </span>
         </div>
 
-        <div className="auth-demo-box">
+        <div className="auth-demo-wrap">
           <button
             type="button"
-            className="auth-demo-btn"
+            className="secondary-button auth-demo-btn"
             onClick={onEnterDemo}
-            title="Explore Vault in an interactive demo workspace"
           >
-            <span className="auth-demo-badge" aria-hidden="true">
-              ⚡ DEMO
-            </span>
-            <div className="auth-demo-content">
-              <strong className="auth-demo-title">Explore Interactive Demo</strong>
-              <span className="auth-demo-subtitle">Tour features & test transfers · No sign-in required</span>
-            </div>
-            <ArrowRightIcon size={16} className="auth-demo-arrow" />
+            <span>Try interactive demo</span>
+            <ArrowRightIcon size={14} />
           </button>
         </div>
 

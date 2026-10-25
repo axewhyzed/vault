@@ -1061,9 +1061,9 @@ export default function App() {
           {isDemo && (
             <div className="demo-ribbon" role="region" aria-label="Demo mode banner">
               <div className="demo-ribbon-left">
-                <span className="demo-ribbon-pill font-mono">⚡ LIVE DEMO</span>
+                <span className="demo-ribbon-pill font-mono">DEMO</span>
                 <span className="demo-ribbon-text">
-                  You are previewing Vault with simulated transfers. Data is stored locally in your browser.
+                  You are previewing Vault in demo mode. All data is stored locally in memory.
                 </span>
               </div>
               <div className="demo-ribbon-actions">
@@ -1071,17 +1071,17 @@ export default function App() {
                   type="button"
                   className="demo-ribbon-btn"
                   onClick={() => setTourOpen(true)}
-                  title="Replay guided tour"
+                  title="Replay guided tour walkthrough"
                 >
-                  Replay Tour
+                  Tour walkthrough
                 </button>
                 <button
                   type="button"
                   className="demo-ribbon-btn demo-ribbon-btn--primary"
                   onClick={exitDemo}
-                  title="Exit demo and sign in"
+                  title="Exit demo mode and go to sign in"
                 >
-                  Exit Demo & Sign In
+                  Sign in
                 </button>
               </div>
             </div>
@@ -1187,6 +1187,7 @@ export default function App() {
         }}
         onUnauthorized={signOutOnUnauthorized}
         fetchCsrf={fetchCsrf}
+        isDemo={isDemo}
       />
 
       <PairDeviceModal

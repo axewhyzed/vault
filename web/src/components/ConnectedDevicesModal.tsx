@@ -18,6 +18,7 @@ type Props = {
   onOpenSecurityModal: () => void;
   onUnauthorized: () => void;
   fetchCsrf: () => Promise<Csrf>;
+  isDemo?: boolean;
 };
 
 export default function ConnectedDevicesModal({
@@ -27,6 +28,7 @@ export default function ConnectedDevicesModal({
   onOpenSecurityModal,
   onUnauthorized,
   fetchCsrf,
+  isDemo,
 }: Props) {
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,6 +38,26 @@ export default function ConnectedDevicesModal({
   const fetchDevices = useCallback(async () => {
     setLoading(true);
     setError(null);
+    if (isDemo) {
+      setDevices([
+        {
+          id: 'demo-dev-1',
+          name: 'Pixel 9 Pro',
+          platform: 'android',
+          createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+          isCurrent: false,
+        },
+        {
+          id: 'demo-dev-2',
+          name: 'This Browser (Chrome)',
+          platform: 'web',
+          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          isCurrent: true,
+        },
+      ]);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch('/api/v1/devices', {
         credentials: 'same-origin',
@@ -56,12 +78,17 @@ export default function ConnectedDevicesModal({
     } finally {
       setLoading(false);
     }
-  }, [onUnauthorized]);
+  }, [onUnauthorized, isDemo]);
 
   async function handleRevokeDevice(deviceId: string) {
     if (revokingId) return;
     setRevokingId(deviceId);
     setError(null);
+    if (isDemo) {
+      setDevices((prev) => prev.filter((d) => d.id !== deviceId));
+      setRevokingId(null);
+      return;
+    }
     try {
       const csrf = await fetchCsrf();
       const res = await fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}`, {

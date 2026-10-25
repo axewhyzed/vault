@@ -2904,81 +2904,15 @@ button:disabled { cursor: not-allowed; }
 }
 
 /* Auth Page Demo Button */
-.auth-demo-box {
-  margin-top: 20px;
+.auth-demo-wrap {
+  margin-top: 18px;
 }
 
 .auth-demo-btn {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  max-width: 320px;
-  padding: 12px 16px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--ink);
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.15s ease-in-out;
-}
-
-.auth-demo-btn:hover {
-  border-color: var(--green);
-  background: var(--hover-bg);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.15);
-}
-
-.auth-demo-btn:focus-visible {
-  outline: 2px solid var(--green);
-  outline-offset: 2px;
-}
-
-.auth-demo-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 6px;
-  border-radius: 4px;
-  background: rgba(16, 185, 129, 0.12);
-  color: var(--green);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  flex-shrink: 0;
-}
-
-.auth-demo-content {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-}
-
-.auth-demo-title {
   font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-  line-height: 1.2;
-}
-
-.auth-demo-subtitle {
-  font-size: 11px;
-  color: var(--ink-secondary);
-  line-height: 1.2;
-}
-
-.auth-demo-arrow {
-  color: var(--muted);
-  flex-shrink: 0;
-  transition: transform 0.15s ease, color 0.15s ease;
-}
-
-.auth-demo-btn:hover .auth-demo-arrow {
-  color: var(--green);
-  transform: translateX(3px);
+  font-weight: 500;
+  padding: 0 16px;
+  min-height: 38px;
 }
 
 /* Demo Workspace Banner Ribbon */
@@ -2988,8 +2922,8 @@ button:disabled { cursor: not-allowed; }
   justify-content: space-between;
   gap: 12px;
   padding: 8px 16px;
-  background: rgba(16, 185, 129, 0.09);
-  border-bottom: 1px solid rgba(16, 185, 129, 0.22);
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
   color: var(--ink);
   font-size: 12px;
   flex-wrap: wrap;
@@ -3005,12 +2939,13 @@ button:disabled { cursor: not-allowed; }
 .demo-ribbon-pill {
   display: inline-flex;
   align-items: center;
-  padding: 2px 7px;
+  padding: 2px 6px;
   border-radius: 4px;
-  background: var(--green);
-  color: #032b17;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--green);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.05em;
   white-space: nowrap;
 }
@@ -3033,7 +2968,7 @@ button:disabled { cursor: not-allowed; }
   padding: 0 10px;
   border-radius: 4px;
   border: 1px solid var(--line);
-  background: var(--card);
+  background: var(--surface, var(--card));
   color: var(--ink);
   font-size: 11px;
   font-weight: 500;
