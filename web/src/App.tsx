@@ -774,15 +774,46 @@ export default function App() {
     }
   }
 
-  function downloadAttachment(downloadUrlPath: string, name?: string | null) {
+  async function downloadAttachment(downloadUrlPath: string, name?: string | null) {
     setCopyMessage('Starting download…');
     try {
       const isDataUrl = downloadUrlPath.startsWith('data:');
-      const url = isDataUrl ? null : new URL(downloadUrlPath, window.location.origin);
-      if (!isDataUrl && (url?.origin !== window.location.origin || !url?.pathname.startsWith(`${API}/`)))
+      if (isDataUrl) {
+        const link = document.createElement('a');
+        link.href = downloadUrlPath;
+        link.download = name?.trim() || 'vault-attachment';
+        link.rel = 'noopener';
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setCopyMessage('Download started.');
+        setTimeout(() => setCopyMessage(''), 2500);
+        return;
+      }
+      const url = new URL(downloadUrlPath, window.location.origin);
+      if (url.origin !== window.location.origin || !url.pathname.startsWith(`${API}/`))
         throw new Error('Vault returned an invalid download address.');
+
+      if (isDemo) {
+        const res = await fetch(downloadUrlPath);
+        if (!res.ok) throw new Error('Could not download this demo attachment.');
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = name?.trim() || 'vault-attachment';
+        link.rel = 'noopener';
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
+        setCopyMessage('Download started.');
+        setTimeout(() => setCopyMessage(''), 2500);
+        return;
+      }
+
       const link = document.createElement('a');
-      link.href = isDataUrl ? downloadUrlPath : `${url!.pathname}${url!.search}`;
+      link.href = `${url.pathname}${url.search}`;
       link.download = name?.trim() || 'vault-attachment';
       link.rel = 'noopener';
       document.body.append(link);
@@ -797,7 +828,7 @@ export default function App() {
 
   function handleQuickDownload(item: ItemSummary, e: MouseEvent) {
     e.stopPropagation();
-    downloadAttachment(`${API}/items/${encodeURIComponent(item.id)}/download`, item.displayName);
+    void downloadAttachment(`${API}/items/${encodeURIComponent(item.id)}/download`, item.displayName);
   }
 
   async function handleQuickDelete(id: string, e: MouseEvent) {
@@ -967,7 +998,7 @@ export default function App() {
               <div className="demo-ribbon-left">
                 <span className="demo-ribbon-pill font-mono">DEMO</span>
                 <span className="demo-ribbon-text">
-                  You are previewing Vault in demo mode. All data is stored locally in memory.
+                  You are previewing Vault in demo mode. Everything is temporary and resets when you leave.
                 </span>
               </div>
               <div className="demo-ribbon-actions">

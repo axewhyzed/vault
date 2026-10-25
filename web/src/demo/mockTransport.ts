@@ -214,6 +214,13 @@ async function handleMockFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     const sizeBytes = body.sizeBytes || 1024;
     const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
 
+    if (sizeBytes > 10_485_760) {
+      return jsonResponse({ code: 'file_too_large', message: 'Demo mode is limited to files up to 10 MB.' }, 400);
+    }
+    if (quota.activeBytes + sizeBytes > quota.maxActiveBytes) {
+      return jsonResponse({ code: 'quota_exceeded', message: 'Demo storage limit reached (10 MB). Delete an item to free space.' }, 409);
+    }
+
     pendingUploads.set(uploadId, {
       uploadId,
       displayName,
@@ -226,7 +233,7 @@ async function handleMockFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       uploadId,
       uploadUrl: `/api/v1/uploads/${encodeURIComponent(uploadId)}/content`,
       expiresAt,
-      maxAcceptedBytes: 100_000_000,
+      maxAcceptedBytes: 10_485_760,
     }, 201);
   }
 
@@ -321,6 +328,35 @@ async function handleMockFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   if (downloadMatch && method === 'GET') {
     const id = decodeURIComponent(downloadMatch[1]);
     const summary = items.find((x) => x.id === id);
+    const detail = details[id];
+    if (detail?.downloadUrl?.startsWith('data:')) {
+      const dataUrl = detail.downloadUrl;
+      const commaIdx = dataUrl.indexOf(',');
+      const meta = dataUrl.slice(5, commaIdx);
+      const isBase64 = meta.includes(';base64');
+      const rawData = dataUrl.slice(commaIdx + 1);
+      const mime = meta.split(';')[0] || 'application/octet-stream';
+      if (isBase64) {
+        const binStr = atob(rawData);
+        const bytes = new Uint8Array(binStr.length);
+        for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+        return new Response(bytes, {
+          status: 200,
+          headers: {
+            'Content-Type': mime,
+            'Content-Disposition': `attachment; filename="${summary?.displayName || 'vault-demo-file'}"`,
+          },
+        });
+      }
+      const decoded = decodeURIComponent(rawData);
+      return new Response(decoded, {
+        status: 200,
+        headers: {
+          'Content-Type': mime,
+          'Content-Disposition': `attachment; filename="${summary?.displayName || 'vault-demo-file'}"`,
+        },
+      });
+    }
     const content = `Vault Demo Decrypted File Content: ${summary?.displayName || id}`;
     return new Response(content, {
       status: 200,

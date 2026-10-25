@@ -8,8 +8,8 @@ export const DEMO_SESSION: Session = {
 };
 
 export const DEMO_QUOTA: Quota = {
-  activeBytes: 42_350_000,
-  maxActiveBytes: 2_000_000_000,
+  activeBytes: 1_842_472,
+  maxActiveBytes: 10_485_760,
   activeItems: 3,
   maxActiveItems: 250,
 };
