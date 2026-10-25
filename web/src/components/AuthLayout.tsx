@@ -1,6 +1,13 @@
 import type { FormEvent, RefObject } from 'react';
-import { AndroidIcon, ArrowRightIcon, DownloadIcon, ShieldLockIcon } from '../Icons';
-import { VAULT_ANDROID_RELEASE_URL } from '../utils';
+import {
+  AndroidIcon,
+  ArrowRightIcon,
+  DownloadIcon,
+  ExternalLinkIcon,
+  GithubIcon,
+  ShieldLockIcon,
+} from '../Icons';
+import { VAULT_ANDROID_RELEASE_URL, VAULT_GITHUB_REPO_URL } from '../utils';
 
 type AuthLayoutProps = {
   serviceOnline: boolean | null;
@@ -75,6 +82,21 @@ export default function AuthLayout({
               <span className="auth-apk-subtitle font-mono tabular-nums">Download APK · v1.0.0</span>
             </div>
             <DownloadIcon size={16} className="auth-apk-arrow" />
+          </a>
+        </div>
+
+        <div className="auth-repo-link-wrap">
+          <a
+            href={VAULT_GITHUB_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="auth-repo-link"
+            title="View Vault repository on GitHub"
+            aria-label="View Vault source code on GitHub (opens in a new tab)"
+          >
+            <GithubIcon size={14} />
+            <span>Open source on GitHub</span>
+            <ExternalLinkIcon size={12} className="auth-repo-link-arrow" />
           </a>
         </div>
       </div>
