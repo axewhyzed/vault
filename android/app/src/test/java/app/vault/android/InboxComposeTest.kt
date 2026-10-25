@@ -149,7 +149,7 @@ class InboxComposeTest {
         // Tap Unit field and select Hours
         compose.onNodeWithText("Days").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText("Hours (1–168)").performClick()
+        compose.onNodeWithText("Hours (1-168)").performClick()
         compose.waitForIdle()
 
         // 7 days converted to 168 hours; replace with 48

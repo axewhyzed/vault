@@ -977,7 +977,7 @@ export default function App() {
             </div>
           )}
           <div className={`vault-workspace ${selectedId ? 'vault-workspace--detail' : ''}`}>
-            {/* Left Panel: Unified Compose Hub (360px–400px) */}
+            {/* Left Panel: Unified Compose Hub (360px-400px) */}
             <div className={`send-stack ${!mobileComposeOpen ? 'mobile-collapsed' : ''}`}>
               <button
                 type="button"
