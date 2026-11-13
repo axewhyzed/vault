@@ -1,12 +1,8 @@
 # Android test coverage and follow-up
 
-This record tracks automated Android client coverage. Passing local builds and Robolectric tests do not prove scanner hardware, Android system bars, browser launch, external content providers, or real device-network behavior. Physical checks are tracked in [slice7-verification.md](slice7-verification.md).
+This page describes automated Android coverage, not a current pass/fail report. Run `./scripts/test-android.ps1` for current local results and consult the matching CI run for a specific commit. Physical checks are tracked in [slice7-verification.md](slice7-verification.md).
 
-## Current automated coverage
-
-Last local command: `./scripts/test-android.ps1`
-
-Result: `assembleDebug`, `testDebugUnitTest` (52 tests), and `lintDebug` passed.
+## Automated coverage
 
 | Feature area | Automated coverage | Main remaining checks |
 |---|---|---|
@@ -26,14 +22,3 @@ Result: `assembleDebug`, `testDebugUnitTest` (52 tests), and `lintDebug` passed.
 2. Test the Inbox UI’s pagination, foreground refresh, API error/retry, URL intent dispatch and save-picker lifecycle.
 3. Use an emulator/phone to verify system-bar geometry, keyboard overlap, large text, TalkBack, camera/QR, clipboard/browser and document providers.
 4. Keep device-specific tests distinct from fast local tests; do not make the server/web deploy workflow run Android checks.
-
-## Recent product fixes
-
-- Paired navigation is **Send / Inbox / Activity**; in-app send supports Text, Link and File.
-- In-app content type is explicit, so URL-looking text remains text.
-- In-app sends and Android Share both reach the same full-content review and retention step before upload.
-- Android Share opens Review after preparing the item; restored Activity does not consume its launch intent again.
-- Recent local sends are scoped to the paired owner and chronologically sorted.
-- File progress preserves the upload ID and idempotency key through WorkManager retry.
-- The exported demo path is debug-only; pairing is busy guarded and masks the manual secret.
-- App chrome uses edge-to-edge Material 3 scaffold insets; physical visual acceptance remains pending.

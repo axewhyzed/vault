@@ -7,7 +7,7 @@
 ### *A private, self-hosted clipboard and file drop between your PC and Android phone.*
 
 [![Release](https://img.shields.io/github/v/release/axewhyzed/vault?color=2b3b2d&label=Release&logo=github)](https://github.com/axewhyzed/vault/releases)
-[![Download APK](https://img.shields.io/badge/Download-Android%20APK%20(v0.8.0)-34a853?logo=android&logoColor=white)](https://github.com/axewhyzed/vault/releases)
+[![Download APK](https://img.shields.io/badge/Download-Android%20APK-34a853?logo=android&logoColor=white)](https://github.com/axewhyzed/vault/releases/latest)
 [![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-3DDC84?logo=android&logoColor=white)](android/)
 [![Backend](https://img.shields.io/badge/.NET-10.0%20Minimal%20API-512BD4?logo=dotnet&logoColor=white)](src/api/Vault.Api)
 [![Frontend](https://img.shields.io/badge/React-19%20%2B%20TypeScript-61DAFB?logo=react&logoColor=black)](web/)
@@ -63,7 +63,7 @@ Ever find yourself emailing a link to yourself, messaging a bot on Telegram or W
 <td align="center" valign="top">
 <img src="docs/assets/android-unpaired.png" alt="Vault Mobile Welcome" width="260px" />
 <br/>
-<sub><i>Pair in 1 second via QR code scan or log in directly with username and password.</i></sub>
+<sub><i>Pair with a QR code from your Vault web app or sign in with credentials.</i></sub>
 </td>
 </tr>
 </table>
@@ -142,20 +142,22 @@ flowchart LR
 - **Backend API (`src/api/Vault.Api`):** Built with ASP.NET Core 10 Minimal APIs and EF Core. File uploads are streamed directly from HTTP request bodies into a mounted disk volume - files never buffer in server RAM or bloat the database. Uploads calculate SHA-256 hashes on the fly to guarantee payload integrity. Active sessions are automatically deduplicated per physical device/browser to eliminate ghost sessions. An automated background worker periodically cleans expired items and orphaned staging files. In development mode, native OpenAPI 3.1 documentation is served via an interactive Scalar reference at `/scalar/v1`.
 - **Desktop Web Client (`web/`):** React 19 + TypeScript single-page application served via Nginx. Session management uses `HttpOnly`, `SameSite=Lax`, encrypted cookies paired with anti-CSRF tokens to protect against cross-origin attacks. Includes real-time connected device inspection, remote device revocation, and keyboard shortcuts (`/` to search, `Escape` to close modals).
 - **Android Client (`android/`):** Native Kotlin application built with Jetpack Compose and Material 3.
-  - **Branding & Splash:** Custom chiseled dual-tone shield icon and native Android 12+ Splash Screen (`androidx.core:core-splashscreen`) for instantaneous, glitch-free cold launches.
+  - **Branding & Splash:** Branded Android 12+ splash screen using `androidx.core:core-splashscreen`.
   - **Authentication & Lifecycle:** Scoped bearer tokens (`va1_` access tokens, `vr1_` refresh tokens) stored in Android `EncryptedSharedPreferences`. A reactive `StateFlow` revision synchronizes authentication across Compose layers, immediately routing to login on revocation or expiry. Foreground resume runs a non-intrusive heartbeat (`/api/v1/auth/me`) that remains offline-tolerant.
   - **Background Work:** Uses Android `WorkManager` with network constraints to manage the Outbox queue, retrying uploads gracefully with exponential backoff if connectivity drops.
   - **Storage & System Integration:** Uses Android Storage Access Framework (SAF) with persistable URI permissions for default download folders, and `androidx.core.content.FileProvider` for launching system viewing intents securely.
-- **Database (`infra/`):** PostgreSQL 18 stores user credentials (Argon2id/PBKDF2), active device sessions, item metadata, and transfer audit logs.
+- **Database (`infra/`):** PostgreSQL 18 stores ASP.NET Core Identity password hashes, active device sessions, item metadata, and transfer audit logs.
 
 ---
 
 ## Quickstart (Self-Hosting with Docker)
 
 ### Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine with Compose v2)
-- PowerShell 7+ (Windows) or Bash (macOS / Linux)
-- .NET 10 SDK *(optional, only if building the backend locally)*
+- Windows PowerShell 7+
+- .NET 10 SDK (used by the local certificate setup script)
+- Docker Desktop with Docker Compose v2
+
+The provided setup instructions target Windows PowerShell. Equivalent macOS/Linux setup steps are not documented here.
 
 ### 1. Generate Local Certificates & Credentials
 From the repository root, run the setup script:
@@ -184,18 +186,17 @@ To stop and erase all data: `docker compose down --volumes`.
 ## Android App Setup
 
 ### 1. Download & Install APK
-Download the signed debug build from [GitHub Releases](https://github.com/axewhyzed/vault/releases):
+Get the release APK from the [latest Vault Android release](https://github.com/axewhyzed/vault/releases/latest). Use the `vault-<version>.apk` asset for a regular install; the `vault-debug-<version>.apk` asset is for testing.
 
-👉 **[Download vault-debug-v0.8.0.apk](https://github.com/axewhyzed/vault/releases)**
-
-Or install directly onto a connected phone or emulator via ADB:
+To install a downloaded APK with ADB:
 ```powershell
-adb install -r vault-debug-v0.8.0.apk
+$apkPath = Read-Host "Path to the downloaded APK"
+adb install -r $apkPath
 ```
 
 ### 2. Sign In or Pair
-- **Option A - Scan QR Code (Recommended):** Click **Pair Phone** in the web topbar, open the app on your phone, and tap **Scan QR Code**. Pairing completes in about one second.
-- **Option B - Username & Password:** Tap **Sign In with Credentials**, enter your username and password, and tap Sign In. (The server URL defaults automatically to your host, or can be expanded to point to a custom domain).
+- **Option A - Scan QR Code (Recommended):** In your own Vault web app, click **Pair Phone**, open the Android app, and tap **Scan QR Code**. The QR code supplies that Vault server and pairing details.
+- **Option B - Username & Password:** Before entering credentials, expand **Using default server** and set **Server URL** to your own trusted HTTPS origin. The APK starts with its configured default server, which may be the project server rather than your self-hosted instance. Pairing from your own Vault web app selects that instance.
 
 Once signed in, the app maintains a 14-day sliding session that refreshes automatically as you use it.
 
@@ -258,7 +259,7 @@ Vault includes test coverage across the backend, frontend, and mobile clients. R
 ├── web/                   # React 19 + TypeScript frontend (Vite, CSS design tokens, Compose Hub)
 ├── android/               # Native Android client (Jetpack Compose, WorkManager, Encrypted Cache)
 ├── infra/                 # Nginx reverse proxy configuration, PostgreSQL, and backup automation
-├── tests/                 # Integration test suites (.NET test host & Android MockWebServer)
+├── tests/                 #  .NET API integration tests; Android tests are under `android/app/src/test/`
 ├── docs/assets/           # Screenshots, UI captures, and architectural diagrams
 └── scripts/               # One-command verification and local setup automation
 ```

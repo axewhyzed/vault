@@ -1,6 +1,6 @@
 # Slice 6 verification
 
-Slice 6 code verification is separate from VPS, backup/restore, and real-device acceptance. Local builds and automated tests do not prove the product flow on physical hardware or over the internet.
+This record covers Slice 6 code checks and physical-device acceptance. Local builds and automated tests do not establish device or production readiness.
 
 ## Automated checks
 
@@ -19,6 +19,8 @@ From the repository root:
 | `npm run lint` | Passed |
 | `./scripts/test.ps1` local HTTPS/PostgreSQL, 36 API tests, web build/lint, pairing and revoke-all concurrency | Passed |
 | `./scripts/test-android.ps1` debug APK, 15 unit tests, Android lint | Passed |
+
+These are historical results from 2026-10-15; the tested commit was not recorded. Re-run the commands above for current status.
 
 ## Contract checklist
 
@@ -55,4 +57,4 @@ Run each row on a physical phone with a trusted HTTPS origin. Record Android ver
 | Confirm no cleartext transport or certificate-validation bypass | Pending | |
 | Confirm web **Sign out everywhere** shows signed-out result | Pending | |
 
-No physical-device acceptance, internet phone/PC flow, Slice 5 production rollout, production backup/restore, or six-week product gate is recorded here.
+This record covers Slice 6 acceptance only. Current production checks are tracked in [production-evidence.md](production-evidence.md).

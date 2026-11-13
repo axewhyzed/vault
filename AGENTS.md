@@ -31,7 +31,7 @@ To prevent release spam, broken builds, and repository bloat, all agents modifyi
   ./scripts/test-android.ps1
   ```
   *(Or execute `android/gradlew.bat --no-daemon assembleDebug testDebugUnitTest lintDebug` directly).*
-- Ensure that the debug APK builds cleanly, all 15+ unit tests pass, and Android lint reports no errors.
+- Ensure that the debug APK builds cleanly, all Android unit tests pass, and Android lint reports no errors.
 
 ### C. Version Code & Name Hygiene
 - **Do not bump `versionCode` or `versionName`** in `android/app/build.gradle.kts` on routine commits.

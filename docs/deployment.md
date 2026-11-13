@@ -1,13 +1,13 @@
 # Production deployment runbook
 
-This is the owner-run deployment procedure for Vault on the existing OVH Singapore VPS with Coolify/Traefik and private PostgreSQL 18. Repository configuration is prepared; no VPS, DNS, firewall, Coolify resource, database, or backup provider was changed. Deployment, TLS/routing checks, an off-site backup, isolated production restore, and internet-device checks remain pending in [production evidence](production-evidence.md).
+This runbook covers a Coolify/Traefik deployment with PostgreSQL kept private. It assumes the host, public hostname, proxy, and database service are provisioned. Keep live host and service identifiers in a private operations record; use [production evidence](production-evidence.md) as a checklist.
 
 ## Before exposing Vault
 
-1. Confirm DNS, the public hostname, host firewall, and the exact Traefik container IP without changing neighboring applications.
+1. Confirm DNS, the public hostname, host firewall, and the trusted proxy address on its container network.
 2. Create a dedicated Vault database and database role on the existing private PostgreSQL service. Do not publish PostgreSQL or the API on a host port.
 3. Configure encrypted off-site backups for the database, `vault_file_data`, and Data Protection keys. Complete one isolated restore before real use. The local synthetic backup test is not a production restore.
-4. Prepare `.env.production.example` in the host's secret manager. Replace every placeholder, use the deployed immutable Git SHA and image references, and keep database/bootstrap/B2 secrets out of Git and shell history.
+4. Use `.env.production.example` as a checklist. Set its values in Coolify, or provide them through a private Compose environment file when deploying outside Coolify. Replace every placeholder, use immutable image references, and keep database/bootstrap/backup secrets out of Git and shell history.
 5. Confirm the file volume has enough capacity for the 100,000,000-byte item cap and the API can observe actual filesystem free space. Upload initiation fails closed unless a requested file fits while retaining 20% of the filesystem's total capacity.
 
 ## Compose services and limits
@@ -30,7 +30,7 @@ Nginx allows the upload route up to 101 MiB at the proxy layer, disables request
 
 The API reserves 20% of the actual storage filesystem's total capacity. It rejects initiation if free space cannot cover the requested upload and reserve, and fails closed if the volume cannot be measured. Active quotas remain 2,000,000,000 bytes and 10,000 items per owner. They are checked at initiation and rechecked under the owner lock at completion. The current plan does not reserve quota formally for concurrent sessions.
 
-There is no background expiry worker. Expired reads are blocked immediately. An interrupted HTTP stream resets the session for retry with the same key. If the API process stops mid-stream, the manual reconciler checks receiving sessions older than two hours: a complete staged file with the expected size/hash is recoverable as staged, while partial bytes can be removed and the session made retryable. The command is report-only by default. Inspect its output first, then use the explicit apply switch during an owner-managed maintenance window:
+Expired reads are blocked immediately. `StorageCleanupWorker` starts after 30 seconds and runs a cleanup sweep every 15 minutes. An interrupted HTTP stream resets the session for retry with the same key. If the API stops mid-stream or immediate reconciliation is needed, the manual command below checks receiving sessions older than two hours. A complete staged file with the expected size/hash is recoverable; partial bytes can be removed and the session made retryable. The command is report-only by default. Inspect its output before using `--apply` during a maintenance window:
 
 ```bash
 docker compose -f compose.production.yaml exec api dotnet Vault.Api.dll --sweep-files
@@ -41,6 +41,4 @@ Apply persists expired state and clears expired text, retries removal for expire
 
 ## Rollout and verification
 
-Deploy immutable API and web images through the existing Coolify setup, run the migration profile, then inspect service health and logs. Verify TLS, routing, private-only API/database access, sign-in, text/URL flows, and a synthetic file upload followed by attachment download. Confirm the object is present in the file volume and in the next encrypted backup. Do not use real user files for a backup drill; create synthetic fixtures.
-
-Only the owner can complete the live VPS, DNS/TLS, off-site backup, isolated restore, and phone/PC internet checks. Record those in `docs/production-evidence.md`; local code and passing tests do not complete the deployment gate or start the six-week product gate.
+Set `VAULT_API_IMAGE` and `VAULT_WEB_IMAGE` to immutable SHA-tagged or digest-pinned references before deployment; the Compose defaults use `latest`. Set `VAULT_BACKUP_IMAGE` similarly when using the backup Compose file. Run the migration profile, inspect service health and logs, then verify TLS, routing, private-only API/database access, sign-in, text/URL flows, and a synthetic file upload/download. Confirm the object is present in the file volume and the next encrypted backup. Use synthetic fixtures for drills. Record non-sensitive outcomes with the [production checklist](production-evidence.md); keep live hostnames, network identifiers, and service IDs in a private operations record.

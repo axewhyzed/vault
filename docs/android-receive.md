@@ -43,4 +43,4 @@ Push-Location android
 try { ./gradlew.bat --no-daemon --console=plain assembleDebug testDebugUnitTest lintDebug } finally { Pop-Location }
 ```
 
-Automated checks cover API/client behavior and local build, unit-test, and lint tasks; they do not prove that an Android document provider, browser, certificate store, or physical device behaves as expected. Follow the separate [Slice 7 verification record](slice7-verification.md) for the pending manual acceptance matrix. Slice 6 physical-device evidence, production Slice 5/7 rollout, production backup/restore, internet phone-to-PC proof, and the overall MVP gate remain pending until recorded from actual runs.
+Use the [Slice 7 verification matrix](slice7-verification.md) for Android device acceptance and the [production checklist](production-evidence.md) for deployment and restore checks.
