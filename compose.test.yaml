@@ -3,16 +3,16 @@ services:
     environment:
       Database__ApplyMigrations: "${VAULT_TEST_APPLY_MIGRATIONS:-false}"
       Database__MigrationOnly: "${VAULT_TEST_MIGRATION_ONLY:-false}"
-      TrustedProxyIp: ${VAULT_PROXY_IP:-172.30.11.10}
+      TrustedProxyIp: ${VAULT_PROXY_IP:?Set VAULT_PROXY_IP for the test network}
     networks:
       app_net:
-        ipv4_address: ${VAULT_API_IP:-172.30.11.11}
+        ipv4_address: ${VAULT_API_IP:?Set VAULT_API_IP for the test network}
   web:
     networks:
       app_net:
-        ipv4_address: ${VAULT_PROXY_IP:-172.30.11.10}
+        ipv4_address: ${VAULT_PROXY_IP:?Set VAULT_PROXY_IP for the test network}
 networks:
   app_net:
     ipam:
       config:
-        - subnet: ${VAULT_NETWORK_SUBNET:-172.30.11.0/24}
+        - subnet: ${VAULT_NETWORK_SUBNET:?Set VAULT_NETWORK_SUBNET for the test network}

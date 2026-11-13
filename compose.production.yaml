@@ -6,10 +6,10 @@ x-api-environment: &api-environment
   Database__ApplyMigrations: "${DATABASE_APPLY_MIGRATIONS:-true}"
   Database__MigrationOnly: "false"
   Bootstrap__Email: ${VAULT_BOOTSTRAP_EMAIL:?Set the Vault bootstrap account email}
-  Bootstrap__Username: ${VAULT_BOOTSTRAP_USERNAME:-mihir0234}
+  Bootstrap__Username: ${VAULT_BOOTSTRAP_USERNAME:?Set the Vault bootstrap account username}
   Bootstrap__Password: ${VAULT_BOOTSTRAP_PASSWORD:?Set the Vault bootstrap account password}
   Bootstrap__SyncCredentials: "${VAULT_BOOTSTRAP_SYNC_CREDENTIALS:-true}"
-  TrustedProxyIp: ${VAULT_WEB_IP:-172.31.20.10}
+  TrustedProxyIp: ${VAULT_WEB_IP:?Set the web container IP on the private backend network}
   Security__AllowedOrigins__0: https://${VAULT_DOMAIN:?Set the public domain for Vault}
   Security__ServerOrigin: https://${VAULT_DOMAIN:?Set the public domain for Vault}
   DataProtection__ApplicationName: Vault
@@ -42,7 +42,7 @@ services:
       - vault_maintenance_lock:/run/vault-maintenance
     networks:
       vault_backend:
-        ipv4_address: ${VAULT_API_IP:-172.31.20.11}
+        ipv4_address: ${VAULT_API_IP:?Set the API container IP on the private backend network}
         aliases: [vault-api-backend]
       coolify: {}
     expose:
@@ -87,7 +87,7 @@ services:
       VAULT_TRAEFIK_TRUSTED_IP: ${VAULT_TRAEFIK_TRUSTED_IP:?Set the exact coolify-proxy container IP on the coolify network}
     networks:
       vault_backend:
-        ipv4_address: ${VAULT_WEB_IP:-172.31.20.10}
+        ipv4_address: ${VAULT_WEB_IP:?Set the web container IP on the private backend network}
       coolify: {}
     expose:
       - "80"
@@ -95,7 +95,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:80/healthz"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:80/healthz"]
       interval: 30s
       timeout: 3s
       start_period: 5s
@@ -116,7 +116,7 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: ${VAULT_BACKEND_SUBNET:-172.31.20.0/24}
+        - subnet: ${VAULT_BACKEND_SUBNET:?Set the private Vault backend subnet}
   coolify:
     external: true
     name: coolify

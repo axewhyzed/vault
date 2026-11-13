@@ -39,7 +39,7 @@ services:
       Bootstrap__Username: ${VAULT_BOOTSTRAP_USERNAME:-owner}
       Bootstrap__Password: ${VAULT_BOOTSTRAP_PASSWORD:?Run ./scripts/setup-local.ps1 to create .env first}
       Bootstrap__SyncCredentials: "${VAULT_BOOTSTRAP_SYNC_CREDENTIALS:-true}"
-      TrustedProxyIp: ${VAULT_PROXY_IP:-172.30.10.10}
+      TrustedProxyIp: ${VAULT_PROXY_IP:?Set VAULT_PROXY_IP in .env}
       Security__AllowedOrigins__0: https://localhost:${VAULT_WEB_PORT:-8080}
       Security__AllowedOrigins__1: ${VAULT_LAN_ORIGIN:-}
       Security__ServerOrigin: ${VAULT_SERVER_ORIGIN:-https://localhost:${VAULT_WEB_PORT:-8080}}
@@ -53,7 +53,7 @@ services:
       - maintenance_lock:/run/vault-maintenance
     networks:
       app_net:
-        ipv4_address: ${VAULT_API_IP:-172.30.10.11}
+        ipv4_address: ${VAULT_API_IP:?Set VAULT_API_IP in .env}
         aliases: [vault-api-backend]
     depends_on:
       postgres:
@@ -73,7 +73,7 @@ services:
       context: web
       dockerfile: Dockerfile
     ports:
-      - "${VAULT_BIND_ADDRESS:-127.0.0.1}:${VAULT_WEB_PORT:-8080}:443"
+      - "${VAULT_BIND_ADDRESS:?Set VAULT_BIND_ADDRESS in .env}:${VAULT_WEB_PORT:-8080}:443"
     volumes:
       - type: bind
         source: ${VAULT_TLS_DIRECTORY:-./.local/tls}
@@ -82,12 +82,12 @@ services:
       - ./infra/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       app_net:
-        ipv4_address: ${VAULT_PROXY_IP:-172.30.10.10}
+        ipv4_address: ${VAULT_PROXY_IP:?Set VAULT_PROXY_IP in .env}
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:80/healthz"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:80/healthz"]
       interval: 30s
       timeout: 3s
       start_period: 5s
@@ -105,4 +105,4 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: ${VAULT_NETWORK_SUBNET:-172.30.10.0/24}
+        - subnet: ${VAULT_NETWORK_SUBNET:?Set VAULT_NETWORK_SUBNET in .env}

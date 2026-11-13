@@ -5,6 +5,7 @@
 !.env.production.example
 !infra/backup/vault-backup.env.example
 .local/
+/vault_hosting_log.md
 
 # .NET build and test output
 **/bin/

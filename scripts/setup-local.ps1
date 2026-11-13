@@ -42,12 +42,34 @@ if (-not (Test-Path -LiteralPath $envPath)) {
         "VAULT_BOOTSTRAP_PASSWORD=$bootstrapPassword"
         'VAULT_WEB_PORT=8080'
         'VAULT_BIND_ADDRESS=127.0.0.1'
+        'VAULT_NETWORK_SUBNET=172.30.10.0/24'
+        'VAULT_PROXY_IP=172.30.10.10'
+        'VAULT_API_IP=172.30.10.11'
         'VAULT_LAN_ORIGIN='
     )
     [System.IO.File]::WriteAllLines($envPath, $environmentLines, [System.Text.UTF8Encoding]::new($false))
     Write-Host "Created local credentials in $envPath. Keep that ignored file private."
 } else {
     Write-Host "Using existing $envPath; existing local credentials were left unchanged."
+}
+
+$networkDefaults = @(
+    'VAULT_BIND_ADDRESS=127.0.0.1'
+    'VAULT_NETWORK_SUBNET=172.30.10.0/24'
+    'VAULT_PROXY_IP=172.30.10.10'
+    'VAULT_API_IP=172.30.10.11'
+)
+$environmentText = [System.IO.File]::ReadAllText($envPath)
+$missingNetworkDefaults = foreach ($setting in $networkDefaults) {
+    $key = $setting.Split('=', 2)[0]
+    if ($environmentText -notmatch "(?m)^$([regex]::Escape($key))=") { $setting }
+}
+if ($missingNetworkDefaults) {
+    if ($environmentText.Length -gt 0 -and -not $environmentText.EndsWith("`n")) {
+        [System.IO.File]::AppendAllText($envPath, [Environment]::NewLine)
+    }
+    [System.IO.File]::AppendAllLines($envPath, [string[]]$missingNetworkDefaults, [System.Text.UTF8Encoding]::new($false))
+    Write-Host 'Added missing local Docker network settings to .env.'
 }
 
 Write-Host 'Local HTTPS certificate is trusted and exported. Run docker compose up --build --wait.'
