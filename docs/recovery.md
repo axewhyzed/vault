@@ -1,6 +1,6 @@
 # Backup and recovery
 
-This runbook covers the PostgreSQL database, file volume, and ASP.NET Data Protection keys. Keep production credentials and live infrastructure identifiers outside Git. Use the [production checklist](production-evidence.md) for non-sensitive validation status.
+This runbook covers the PostgreSQL database, file volume, and ASP.NET Data Protection keys. Keep production credentials, disaster recovery run results, and live infrastructure identifiers in private operations records outside version control.
 
 ## Recovery set
 
@@ -24,7 +24,7 @@ The test creates disposable Docker volumes, a local encrypted Restic repository,
 
 ## Production backup and restore
 
-Before storing real user data, configure an encrypted off-site repository and daily backup of the Vault database plus `vault_file_data`, then complete an isolated restore. Keep backup credentials outside this repository. Record non-sensitive results in the [production checklist](production-evidence.md); store live identifiers in a private operations record.
+Before storing real user data, configure an encrypted off-site repository and daily backup of the Vault database plus `vault_file_data`, then complete an isolated restore. Keep backup credentials outside this repository. Record disaster recovery drill results, snapshots, and live identifiers in a private operations record outside version control.
 
 For a restore, stop Vault writes first. Restore PostgreSQL, `vault_file_data`, and Data Protection keys from the same snapshot into isolated replacement resources. Verify the EF migration level, representative synthetic item metadata, and file hashes before routing traffic to the replacement. Do not restore over the only surviving production database or reuse production volumes as a test target.
 

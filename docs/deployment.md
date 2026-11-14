@@ -1,6 +1,6 @@
 # Production deployment runbook
 
-This runbook covers a Coolify/Traefik deployment with PostgreSQL kept private. It assumes the host, public hostname, proxy, and database service are provisioned. Keep live host and service identifiers in a private operations record; use [production evidence](production-evidence.md) as a checklist.
+This runbook covers a Coolify/Traefik deployment with PostgreSQL kept private. It assumes the host, public hostname, proxy, and database service are provisioned. Keep live host and service identifiers and deployment logs in private operations records outside version control.
 
 ## Before exposing Vault
 
@@ -41,4 +41,4 @@ Apply persists expired state and clears expired text, retries removal for expire
 
 ## Rollout and verification
 
-Set `VAULT_API_IMAGE` and `VAULT_WEB_IMAGE` to immutable SHA-tagged or digest-pinned references before deployment; the Compose defaults use `latest`. Set `VAULT_BACKUP_IMAGE` similarly when using the backup Compose file. Run the migration profile, inspect service health and logs, then verify TLS, routing, private-only API/database access, sign-in, text/URL flows, and a synthetic file upload/download. Confirm the object is present in the file volume and the next encrypted backup. Use synthetic fixtures for drills. Record non-sensitive outcomes with the [production checklist](production-evidence.md); keep live hostnames, network identifiers, and service IDs in a private operations record.
+Set `VAULT_API_IMAGE` and `VAULT_WEB_IMAGE` to immutable SHA-tagged or digest-pinned references before deployment; the Compose defaults use `latest`. Set `VAULT_BACKUP_IMAGE` similarly when using the backup Compose file. Run the migration profile, inspect service health and logs, then verify TLS, routing, private-only API/database access, sign-in, text/URL flows, and a synthetic file upload/download. Confirm the object is present in the file volume and the next encrypted backup. Use synthetic fixtures for drills. Record deployment outcomes and keep live hostnames, network identifiers, and service IDs in a private operations record outside version control.

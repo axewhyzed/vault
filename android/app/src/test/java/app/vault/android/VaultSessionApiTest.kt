@@ -68,9 +68,9 @@ class VaultSessionApiTest {
                 {
                     "tokenType": "Bearer",
                     "accessToken": "va1_mock_access_token_12345678901234567890",
-                    "accessTokenExpiresAt": "2026-10-17T12:15:00Z",
+                    "accessTokenExpiresAt": "2099-10-17T12:15:00Z",
                     "refreshToken": "vr1_mock_refresh_token_12345678901234567890",
-                    "refreshTokenExpiresAt": "2026-10-31T12:00:00Z",
+                    "refreshTokenExpiresAt": "2099-10-31T12:00:00Z",
                     "userId": "usr_test_123",
                     "deviceId": "dev_test_456"
                 }

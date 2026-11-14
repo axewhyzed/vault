@@ -22,11 +22,13 @@
 
 Ever find yourself emailing a link to yourself, messaging a bot on Telegram or WhatsApp just to copy some text to your phone, or waiting for cloud drive sync just to move a single PDF?
 
-**Vault replaces those workarounds.** It gives you a private, self-hosted inbox that connects your desktop browser and your Android phone directly:
+**Vault replaces those workarounds.** It gives you a private drop-box that connects your desktop browser and your Android phone directly:
 
 1. **Paste or drop on your PC** - links, text notes, code snippets, or files up to 100 MB.
 2. **It arrives on your phone immediately** - with smart one-tap actions to open, copy, or download.
 3. **No third-party cloud required** - your data runs on your own hardware, with zero tracking, no ads, and no subscription fees.
+
+> 💡 **Try it in your browser:** You can test Vault immediately without installing Docker or entering credentials. Open the **[Interactive Web Demo](#what-you-can-do)** (or navigate to `/#demo` in the web client) to experience the live guided tour, mock transfers, and simulated phone pairing.
 
 ---
 
@@ -35,7 +37,7 @@ Ever find yourself emailing a link to yourself, messaging a bot on Telegram or W
 <div align="center">
 
 ### Desktop Web Workspace
-*Clean two-pane inbox with instant compose, live storage meter, type filters, and real-time search (`/`).*
+*Clean two-pane master-detail inbox with instant compose, live storage meter, type filters, and real-time search (`/`).*
 
 <img src="docs/assets/web-inbox.png" alt="Vault Web Workspace" width="100%" />
 
@@ -63,7 +65,7 @@ Ever find yourself emailing a link to yourself, messaging a bot on Telegram or W
 <td align="center" valign="top">
 <img src="docs/assets/android-unpaired.png" alt="Vault Mobile Welcome" width="260px" />
 <br/>
-<sub><i>Pair with a QR code from your Vault web app or sign in with credentials.</i></sub>
+<sub><i>Pair in seconds via QR code scan or log in directly with username and password.</i></sub>
 </td>
 </tr>
 </table>
@@ -79,12 +81,12 @@ Ever find yourself emailing a link to yourself, messaging a bot on Telegram or W
 <td align="center" valign="top">
 <img src="docs/assets/web-pairing.png" alt="Vault Web Pairing Modal" width="100%" />
 <br/>
-<sub><i>One-click QR generator in the topbar with countdown timer and fallback pairing secret.</i></sub>
+<sub><i>One-click QR generator in the topbar with countdown timer, auto-link detection, and fallback secret.</i></sub>
 </td>
 <td align="center" valign="top">
 <img src="docs/assets/web-auth.png" alt="Vault Web Auth Screen" width="100%" />
 <br/>
-<sub><i>HttpOnly SameSite cookie isolation, anti-CSRF verification, and rate limiting.</i></sub>
+<sub><i>HttpOnly SameSite cookie isolation, anti-CSRF verification, and rate limiting with timing-attack defense.</i></sub>
 </td>
 </tr>
 </table>
@@ -93,7 +95,11 @@ Ever find yourself emailing a link to yourself, messaging a bot on Telegram or W
 
 ## What You Can Do
 
-- ⚡ **Send in Seconds:** Drop text notes, links, or files up to 100 MB from your desktop browser or phone.
+- 🎮 **Interactive Web Demo Mode:** Explore the full interface directly in your browser without deploying a server. Includes an interactive spotlight tour guiding you through the Compose Hub, retention controls, transfer list, and simulated phone pairing.
+- ⚡ **Send in Seconds (Unified Compose Hub):**
+  - **Text:** Live byte counter, character meter, and monospace styling.
+  - **Links:** Auto-normalization, scheme validation, and instant one-tap launch.
+  - **Files:** Drag-and-drop zone with instant SHA-256 calculation, progress animation, and 100 MB capacity limit.
 - 📴 **Offline Outbox (Android):** Share a file or type a note while your phone has no internet connection. Vault queues it locally and automatically sends it in the background as soon as connectivity returns.
 - 🎯 **Smart One-Tap Actions:**
   - **Links / URLs:** Open directly in your browser or copy the link with one tap.
@@ -256,11 +262,12 @@ Vault includes test coverage across the backend, frontend, and mobile clients. R
 
 ```text
 ├── src/api/Vault.Api/     # ASP.NET Core 10 Minimal APIs & domain modules (Auth, Storage, Transfers)
-├── web/                   # React 19 + TypeScript frontend (Vite, CSS design tokens, Compose Hub)
+├── web/                   # React 19 + TypeScript frontend (Vite 6, Compose Hub, Demo Mode)
 ├── android/               # Native Android client (Jetpack Compose, WorkManager, Encrypted Cache)
-├── infra/                 # Nginx reverse proxy configuration, PostgreSQL, and backup automation
-├── tests/                 #  .NET API integration tests; Android tests are under `android/app/src/test/`
-├── docs/assets/           # Screenshots, UI captures, and architectural diagrams
+├── infra/                 # Nginx reverse proxy configurations, PostgreSQL, and backup automation
+├── tests/                 # Integration test suites (.NET test host & Android MockWebServer)
+├── docs/                  # Architecture guides (android-client.md, deployment.md, recovery.md)
+│   └── assets/            # Screenshots, UI captures, and architectural diagrams
 └── scripts/               # One-command verification and local setup automation
 ```
 
