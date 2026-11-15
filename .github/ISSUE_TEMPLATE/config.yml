@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💡 Feature Requests & Ideas
+    url: https://github.com/axewhyzed/vault/discussions/new?category=ideas
+    about: Propose new ideas, workflows, or architectural suggestions in Discussions.
+  - name: 💬 Questions & Setup Help
+    url: https://github.com/axewhyzed/vault/discussions/new?category=q-a
+    about: Ask questions about local Wi-Fi, certificates, or self-hosting environments.

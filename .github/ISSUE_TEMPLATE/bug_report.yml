@@ -1,0 +1,52 @@
+name: 🐛 Bug Report
+description: Report a reproducible problem or broken behavior in Vault.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Vault! Please ensure you have checked the [README](https://github.com/axewhyzed/vault#readme) and existing issues before submitting.
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Scope Confirmation
+      options:
+        - label: I understand Vault is a lightweight, single-tenant personal relay (not a multi-user cloud drive or Syncthing replacement).
+          required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      options:
+        - Web Workspace (Desktop Browser)
+        - Android Client
+        - Backend API (.NET)
+        - Docker / Infra / Nginx
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description of the Bug
+      description: A clear and concise description of what happened.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1. Open Vault on PC
+        2. Upload a file...
+        3. Observe error...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment & Versions
+      description: OS version, Android device/OS, browser name, Docker version, etc.
+      placeholder: "Windows 11, Pixel 8 (Android 14), Chrome 129, Docker Compose v2.29"
+    validations:
+      required: true
